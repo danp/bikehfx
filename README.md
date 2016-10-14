@@ -1,12 +1,21 @@
-# yhzbike
+# bikehfx
 
-## daily tweet
+## Thanks
+
+Thanks to:
+
+* [Halifax Cycling Coalition](https://cyclehalifax.ca/) and [DalTRAC](http://www.dal.ca/sites/daltrac.html) for the counter(s) and data
+* Michael Jones for the [yycbike](https://github.com/Chealion/yycbike) repo
+
+## Ideas
+
+### daily tweet
 
 * total count for the day, top hour?
 * whether it was a record
 * week/month/year recaps (tops, comparisons to similar time period)
 
-## data capture
+### data capture
 
 * hourly counter data
 * weather data?
