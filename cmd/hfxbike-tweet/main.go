@@ -26,6 +26,8 @@ type Config struct {
 	TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
 	TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
 	TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
+
+	TestMode bool `env:"TEST_MODE"`
 }
 
 func main() {
@@ -50,6 +52,11 @@ func main() {
 	yf := yesterday.Format("Mon Jan 2")
 	stxt := fmt.Sprintf("%d bike trips counted on %s\n\n#bikehfx", tot, yf)
 	log.Printf("at=tweet stxt=%q", stxt)
+
+	if cfg.TestMode {
+		log.Println("test mode, doing nothing")
+		return
+	}
 
 	oaConfig := oauth1.NewConfig(cfg.TwitterConsumerKey, cfg.TwitterConsumerSecret)
 	oaToken := oauth1.NewToken(cfg.TwitterAppToken, cfg.TwitterAppSecret)
