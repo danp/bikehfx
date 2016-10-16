@@ -18,7 +18,7 @@ type counter struct {
 }
 
 var counters = []counter{
-	{name: "Agricola & North", ecoID: "101033965"},
+	{name: "Agricola & North", ecoID: "100033965"},
 }
 
 type Config struct {
