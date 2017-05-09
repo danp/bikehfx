@@ -1,9 +1,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/danp/bikehfx/ecocounter"
@@ -18,7 +18,9 @@ type counter struct {
 }
 
 var counters = []counter{
-	{name: "Agricola & North", ecoID: "100033965"},
+	{name: "Agri SB", ecoID: "100033965"},
+	{name: "Uni Rowe", ecoID: "100033028"},
+	{name: "Uni Arts", ecoID: "100036476"},
 }
 
 type Config struct {
@@ -26,6 +28,8 @@ type Config struct {
 	TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
 	TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
 	TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
+
+	Day string `env:"DAY"`
 
 	TestMode bool `env:"TEST_MODE"`
 }
@@ -38,19 +42,49 @@ func main() {
 		log.Fatal(err)
 	}
 
-	yesterday := time.Now().Add(-24 * time.Hour)
-
-	var tot int
-	for _, c := range counters {
-		cnt, err := get(c, yesterday)
+	day := time.Now().Add(-24 * time.Hour)
+	if cfg.Day != "" {
+		d, err := time.Parse("20060102", cfg.Day)
 		if err != nil {
 			log.Fatal(err)
 		}
-		tot += cnt
+		day = d
 	}
 
-	yf := yesterday.Format("Mon Jan 2")
-	stxt := fmt.Sprintf("%d bike trips counted on %s\n\n#bikehfx", tot, yf)
+	type ccount struct {
+		name  string
+		count int
+	}
+	counts := make([]ccount, 0, len(counters))
+
+	var tot int
+	for _, c := range counters {
+		count, err := get(c, day)
+		if err != nil {
+			log.Fatal(err)
+		}
+		counts = append(counts, ccount{name: c.name, count: count})
+		tot += count
+	}
+	if tot == 0 {
+		return
+	}
+
+	sort.Slice(counts, func(i, j int) bool { return counts[j].count < counts[i].count })
+
+	yf := day.Format("Mon Jan 2")
+	stxt := fmt.Sprintf("%d #bikehfx trips counted on %s\n", tot, yf)
+	for _, c := range counts {
+		if c.count == 0 {
+			continue
+		}
+
+		ctxt := fmt.Sprintf("\n%d %s", c.count, c.name)
+		if len(stxt)+len(ctxt) > 135 {
+			break
+		}
+		stxt += ctxt
+	}
 	log.Printf("at=tweet stxt=%q", stxt)
 
 	if cfg.TestMode {
@@ -68,14 +102,14 @@ func main() {
 	fmt.Println("https://twitter.com/" + tw.User.ScreenName + "/status/" + tw.IDStr)
 }
 
-func get(c counter, yesterday time.Time) (int, error) {
-	ds, err := ecocounter.GetDatapoints(c.ecoID, yesterday, yesterday, ecocounter.ResolutionDay)
+func get(c counter, day time.Time) (int, error) {
+	ds, err := ecocounter.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionDay)
 	if err != nil {
 		return 0, err
 	}
 
 	if len(ds) != 1 {
-		return 0, errors.New("no datapoints")
+		return 0, nil
 	}
 
 	return ds[0].Count, nil
