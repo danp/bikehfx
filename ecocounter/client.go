@@ -11,30 +11,32 @@ import (
 type Resolution int
 
 const (
-	ResolutionHour = 2
-	ResolutionDay  = 4
+	ResolutionHour Resolution = 2
+	ResolutionDay  Resolution = 4
 )
 
+// A Datapoint represents a count at a point in time.
 type Datapoint struct {
-	Time  time.Time // local time
+	// Time is the local time of the count, in YYYY-MM-DD HH:MM:SS format.
+	Time string
+
+	// Count is how many trips were counted.
 	Count int
 }
 
 const (
-	dateFormat = "20060102"
+	requestDateFormat  = "20060102"
+	responseDateFormat = "2006-01-02 15:04:05"
 )
 
 func GetDatapoints(id string, begin, end time.Time, resolution Resolution) ([]Datapoint, error) {
-	bs := begin.Format(dateFormat)
-	es := end.Format(dateFormat)
-
 	req, err := http.NewRequest(http.MethodGet, "http://www.eco-public.com/api/cw6Xk4jW4X4R/data/periode/"+id, nil)
 	if err != nil {
 		return nil, err
 	}
 	q := make(url.Values)
-	q.Set("begin", bs)
-	q.Set("end", es)
+	q.Set("begin", begin.Format(requestDateFormat))
+	q.Set("end", end.Format(requestDateFormat))
 	q.Set("step", fmt.Sprintf("%d", resolution))
 	req.URL.RawQuery = q.Encode()
 
@@ -58,12 +60,18 @@ func GetDatapoints(id string, begin, end time.Time, resolution Resolution) ([]Da
 		return nil, err
 	}
 
-	var ds []Datapoint
+	ds := make([]Datapoint, 0)
 	for _, b := range body {
 		if b.Comptage == nil {
 			continue
 		}
-		d := Datapoint{Time: time.Unix(b.Timestamp/1000, 0), Count: *b.Comptage}
+
+		t, err := time.Parse(responseDateFormat, b.Date)
+		if err != nil {
+			return nil, err
+		}
+
+		d := Datapoint{Time: t.Format(responseDateFormat), Count: *b.Comptage}
 		ds = append(ds, d)
 	}
 
