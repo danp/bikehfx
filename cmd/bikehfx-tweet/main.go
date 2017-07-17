@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"mime/multipart"
+	"net/http"
 	"sort"
 	"time"
 
@@ -67,6 +72,7 @@ func main() {
 		tot += count
 	}
 	if tot == 0 {
+		log.Printf("no data for any counters on %s, doing nothing", day)
 		return
 	}
 
@@ -87,15 +93,32 @@ func main() {
 	}
 	log.Printf("at=tweet stxt=%q", stxt)
 
+	gb, err := makeHourlyGraph(day)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if cfg.TestMode {
-		log.Println("test mode, doing nothing")
+		log.Println("test mode, writing graph.png")
+		if err := ioutil.WriteFile("graph.png", gb, 0644); err != nil {
+			log.Fatal(err)
+		}
+
+		log.Println("test mode, not tweeting")
 		return
 	}
 
 	oaConfig := oauth1.NewConfig(cfg.TwitterConsumerKey, cfg.TwitterConsumerSecret)
 	oaToken := oauth1.NewToken(cfg.TwitterAppToken, cfg.TwitterAppSecret)
-	twc := twitter.NewClient(oaConfig.Client(oauth1.NoContext, oaToken))
-	tw, _, err := twc.Statuses.Update(stxt, nil)
+	cl := oaConfig.Client(oauth1.NoContext, oaToken)
+
+	mid, err := uploadMedia(cl, gb)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	twc := twitter.NewClient(cl)
+	tw, _, err := twc.Statuses.Update(stxt, &twitter.StatusUpdateParams{MediaIds: []int64{mid}})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -113,4 +136,43 @@ func get(c counter, day time.Time) (int, error) {
 	}
 
 	return ds[0].Count, nil
+}
+
+func uploadMedia(cl *http.Client, m []byte) (int64, error) {
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+
+	fw, err := w.CreateFormField("media")
+	if err != nil {
+		return 0, err
+	}
+	if _, err := fw.Write(m); err != nil {
+		return 0, err
+	}
+	if err := w.Close(); err != nil {
+		return 0, err
+	}
+
+	req, err := http.NewRequest("POST", "https://upload.twitter.com/1.1/media/upload.json", &b)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := cl.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode/100 != 2 {
+		return 0, fmt.Errorf("got status %d", resp.StatusCode)
+	}
+
+	var mresp struct {
+		MediaID int64 `json:"media_id"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&mresp)
+	return mresp.MediaID, err
 }
