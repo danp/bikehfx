@@ -13,14 +13,17 @@ type Client struct {
 	sling *sling.Sling
 	// Twitter API Services
 	Accounts       *AccountService
-	Statuses       *StatusService
-	Timelines      *TimelineService
-	Users          *UserService
+	DirectMessages *DirectMessageService
 	Favorites      *FavoriteService
 	Followers      *FollowerService
-	DirectMessages *DirectMessageService
+	Friends        *FriendService
+	Friendships    *FriendshipService
 	Search         *SearchService
+	Statuses       *StatusService
 	Streams        *StreamService
+	Timelines      *TimelineService
+	Trends         *TrendsService
+	Users          *UserService
 }
 
 // NewClient returns a new Client.
@@ -29,14 +32,17 @@ func NewClient(httpClient *http.Client) *Client {
 	return &Client{
 		sling:          base,
 		Accounts:       newAccountService(base.New()),
-		Statuses:       newStatusService(base.New()),
-		Timelines:      newTimelineService(base.New()),
-		Users:          newUserService(base.New()),
+		DirectMessages: newDirectMessageService(base.New()),
 		Favorites:      newFavoriteService(base.New()),
 		Followers:      newFollowerService(base.New()),
-		DirectMessages: newDirectMessageService(base.New()),
+		Friends:        newFriendService(base.New()),
+		Friendships:    newFriendshipService(base.New()),
 		Search:         newSearchService(base.New()),
+		Statuses:       newStatusService(base.New()),
 		Streams:        newStreamService(httpClient, base.New()),
+		Timelines:      newTimelineService(base.New()),
+		Trends:         newTrendsService(base.New()),
+		Users:          newUserService(base.New()),
 	}
 }
 

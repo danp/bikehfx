@@ -29,6 +29,7 @@ type FavoriteListParams struct {
 	SinceID         int64  `url:"since_id,omitempty"`
 	MaxID           int64  `url:"max_id,omitempty"`
 	IncludeEntities *bool  `url:"include_entities,omitempty"`
+	TweetMode       string `url:"tweet_mode,omitempty"`
 }
 
 // List returns liked Tweets from the specified user.
@@ -38,4 +39,34 @@ func (s *FavoriteService) List(params *FavoriteListParams) ([]Tweet, *http.Respo
 	apiError := new(APIError)
 	resp, err := s.sling.New().Get("list.json").QueryStruct(params).Receive(favorites, apiError)
 	return *favorites, resp, relevantError(err, *apiError)
+}
+
+// FavoriteCreateParams are the parameters for FavoriteService.Create.
+type FavoriteCreateParams struct {
+	ID int64 `url:"id,omitempty"`
+}
+
+// Create favorites the specified tweet.
+// Requires a user auth context.
+// https://dev.twitter.com/rest/reference/post/favorites/create
+func (s *FavoriteService) Create(params *FavoriteCreateParams) (*Tweet, *http.Response, error) {
+	tweet := new(Tweet)
+	apiError := new(APIError)
+	resp, err := s.sling.New().Post("create.json").QueryStruct(params).Receive(tweet, apiError)
+	return tweet, resp, relevantError(err, *apiError)
+}
+
+// FavoriteDestroyParams are the parameters for FavoriteService.Destroy.
+type FavoriteDestroyParams struct {
+	ID int64 `url:"id,omitempty"`
+}
+
+// Destroy un-favorites the specified tweet.
+// Requires a user auth context.
+// https://dev.twitter.com/rest/reference/post/favorites/destroy
+func (s *FavoriteService) Destroy(params *FavoriteDestroyParams) (*Tweet, *http.Response, error) {
+	tweet := new(Tweet)
+	apiError := new(APIError)
+	resp, err := s.sling.New().Post("destroy.json").QueryStruct(params).Receive(tweet, apiError)
+	return tweet, resp, relevantError(err, *apiError)
 }
