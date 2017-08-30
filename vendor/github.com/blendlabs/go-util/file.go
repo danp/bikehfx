@@ -124,10 +124,10 @@ func (fu fileUtil) ReadString(path string) (string, error) {
 }
 
 // ReadChunkHandler is a receiver for a chunk of a file.
-type ReadChunkHandler func(line []byte)
+type ReadChunkHandler func(line []byte) error
 
 //ReadLineHandler is a receiver for a line of a file.
-type ReadLineHandler func(line string)
+type ReadLineHandler func(line string) error
 
 // ReadFileByLines reads a file and calls the handler for each line.
 func (fu fileUtil) ReadByLines(filePath string, handler ReadLineHandler) error {
@@ -137,7 +137,10 @@ func (fu fileUtil) ReadByLines(filePath string, handler ReadLineHandler) error {
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
 			line := scanner.Text()
-			handler(line)
+			err = handler(line)
+			if err != nil {
+				return exception.Wrap(err)
+			}
 		}
 	} else {
 		return exception.Wrap(err)
@@ -157,7 +160,10 @@ func (fu fileUtil) ReadByChunks(filePath string, chunkSize int, handler ReadChun
 				break
 			}
 			readData := chunk[:readBytes]
-			handler(readData)
+			err = handler(readData)
+			if err != nil {
+				return exception.Wrap(err)
+			}
 		}
 	} else {
 		return exception.Wrap(err)

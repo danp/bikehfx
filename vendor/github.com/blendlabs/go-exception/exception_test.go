@@ -1,6 +1,7 @@
 package exception
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func TestNew(t *testing.T) {
 	a := assert.New(t)
-	ex := As(New("this is a test"))
+	ex := New("this is a test")
 	a.Equal("this is a test", fmt.Sprintf("%v", ex))
 	a.NotNil(ex.StackTrace())
 	a.Nil(ex.Inner())
@@ -28,16 +29,9 @@ func TestError(t *testing.T) {
 
 func TestNewf(t *testing.T) {
 	a := assert.New(t)
-	ex := As(Newf("%s", "this is a test"))
-	a.Equal("this is a test", fmt.Sprintf("%v", ex))
-	a.NotEmpty(ex.StackTrace())
-	a.Nil(ex.Inner())
-}
-
-func TestWrapError(t *testing.T) {
-	a := assert.New(t)
-	ex := As(WrapError(errors.New("this is a test")))
-	a.Equal("this is a test", fmt.Sprintf("%v", ex))
+	ex := Newf("default_class").WithMessagef("%s", "this is a test")
+	a.Equal("default_class\nmessage: this is a test", fmt.Sprintf("%v", ex))
+	a.Equal("this is a test", fmt.Sprintf("%m", ex))
 	a.NotEmpty(ex.StackTrace())
 	a.Nil(ex.Inner())
 }
@@ -104,19 +98,28 @@ func TestWrapWithReturnedNil(t *testing.T) {
 	a.True(shouldAlsoBeNil == nil)
 }
 
-func TestWrapMany(t *testing.T) {
+func TestCallers(t *testing.T) {
 	a := assert.New(t)
 
-	err := errors.New("This is an error")
-	ex1 := New("Exception1")
-	ex2 := New("Exception2")
+	callStack := func() *stack { return callers() }()
 
-	combined := As(Nest(ex1, ex2, err))
+	a.NotNil(callStack)
+	callstackStr := fmt.Sprintf("%+v", callStack)
+	a.True(strings.Contains(callstackStr, "testing.tRunner"), callstackStr)
+}
 
-	a.NotNil(combined)
-	a.NotNil(combined.Inner())
-	a.NotNil(As(combined.Inner()).Inner())
-	a.NotEmpty(combined.Error())
+func TestExceptionFormatters(t *testing.T) {
+	assert := assert.New(t)
+
+	// test the "%v" formatter with just the exception class.
+	class := &Ex{class: "this is a test"}
+	assert.Equal("this is a test", fmt.Sprintf("%v", class))
+
+	classAndMessage := &Ex{class: "foo", message: "bar"}
+	assert.Equal("foo\nmessage: bar", fmt.Sprintf("%v", classAndMessage))
+
+	message := &Ex{message: "bar"}
+	assert.Equal("bar", fmt.Sprintf("%v", message))
 }
 
 func TestNestWithCycle(t *testing.T) {
@@ -144,25 +147,25 @@ func TestNestNil(t *testing.T) {
 	a.Equal(nil, err)
 }
 
-func TestCallers(t *testing.T) {
+func TestMarshalJSON(t *testing.T) {
+	type ReadableStackTrace struct {
+		Class   string   `json:"Class"`
+		Message string   `json:"Message"`
+		Stack   []string `json:"Stack"`
+	}
+
 	a := assert.New(t)
+	ex := New("new test error")
+	a.NotNil(ex)
+	stackTrace := ex.StackTrace()
+	stackDepth := len(stackTrace)
 
-	callStack := func() *stack { return callers() }()
+	jsonErr, err := json.Marshal(ex)
+	a.Nil(err)
+	a.NotNil(jsonErr)
 
-	a.NotNil(callStack)
-	callstackStr := fmt.Sprintf("%+v", callStack)
-	a.True(strings.Contains(callstackStr, "testing.tRunner"), callstackStr)
-}
-
-func TestExceptionFormatters(t *testing.T) {
-	assert := assert.New(t)
-
-	ex := New("this is a test")
-	exMessage := fmt.Sprintf("%v", ex)
-	assert.Equal("this is a test", exMessage)
-	exWithStack := fmt.Sprintf("%+v", ex)
-	assert.True(strings.HasPrefix(exWithStack, exMessage))
-	assert.NotEqual(exMessage, exWithStack)
-	exStack := fmt.Sprintf("%-v", ex)
-	assert.False(strings.HasPrefix(exStack, exMessage))
+	ex2 := &ReadableStackTrace{}
+	err = json.Unmarshal(jsonErr, ex2)
+	a.Nil(err)
+	a.Len(ex2.Stack, stackDepth)
 }

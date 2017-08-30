@@ -152,6 +152,61 @@ func (su stringUtil) HasSuffixCaseInsensitive(corpus, suffix string) bool {
 	return true
 }
 
+func (su stringUtil) TrimPrefixCaseInsensitive(corpus, prefix string) string {
+	corpusLen := len(corpus)
+	prefixLen := len(prefix)
+
+	if corpusLen < prefixLen {
+		return corpus
+	}
+
+	for x := 0; x < prefixLen; x++ {
+		charCorpus := uint(corpus[x])
+		charPrefix := uint(prefix[x])
+
+		if charCorpus-LowerA <= lowerDiff {
+			charCorpus = charCorpus - 0x20
+		}
+
+		if charPrefix-LowerA <= lowerDiff {
+			charPrefix = charPrefix - 0x20
+		}
+		if charCorpus != charPrefix {
+			return corpus
+		}
+	}
+
+	return corpus[prefixLen:]
+}
+
+// TrimSuffixCaseInsensitive trims a case insensitive suffix from a corpus.
+func (su stringUtil) TrimSuffixCaseInsensitive(corpus, suffix string) string {
+	corpusLen := len(corpus)
+	suffixLen := len(suffix)
+
+	if corpusLen < suffixLen {
+		return corpus
+	}
+
+	for x := 0; x < suffixLen; x++ {
+		charCorpus := uint(corpus[corpusLen-(x+1)])
+		charSuffix := uint(suffix[suffixLen-(x+1)])
+
+		if charCorpus-LowerA <= lowerDiff {
+			charCorpus = charCorpus - 0x20
+		}
+
+		if charSuffix-LowerA <= lowerDiff {
+			charSuffix = charSuffix - 0x20
+		}
+
+		if charCorpus != charSuffix {
+			return corpus
+		}
+	}
+	return corpus[:corpusLen-suffixLen]
+}
+
 // IsLetter returns if a rune is in the ascii letter range.
 func (su stringUtil) IsLetter(c rune) bool {
 	return su.IsUpper(c) || su.IsLower(c)
@@ -239,8 +294,8 @@ func (su stringUtil) CombineRunsets(runesets ...[]rune) []rune {
 	return output
 }
 
-// IsValidInteger returns if a string is an integer.
-func (su stringUtil) IsValidInteger(input string) bool {
+// IsInteger returns if a string is an integer.
+func (su stringUtil) IsInteger(input string) bool {
 	_, convCrr := strconv.Atoi(input)
 	return convCrr == nil
 }
@@ -281,69 +336,24 @@ func (su stringUtil) RegexExtractSubMatches(corpus, expr string) []string {
 	return results
 }
 
-// ParseFloat64 parses a float64
-func (su stringUtil) ParseFloat64(input string) float64 {
-	result, err := strconv.ParseFloat(input, 64)
-	if err != nil {
-		return 0.0
-	}
-	return result
-}
-
-// ParseFloat32 parses a float32
-func (su stringUtil) ParseFloat32(input string) float32 {
-	result, err := strconv.ParseFloat(input, 32)
-	if err != nil {
-		return 0.0
-	}
-	return float32(result)
-}
-
-// ParseInt parses an int
-func (su stringUtil) ParseInt(input string) int {
-	result, err := strconv.Atoi(input)
-	if err != nil {
-		return 0
-	}
-	return result
-}
-
-// ParseInt32 parses an int
-func (su stringUtil) ParseInt32(input string) int32 {
-	result, err := strconv.Atoi(input)
-	if err != nil {
-		return 0
-	}
-	return int32(result)
-}
-
-// ParseInt64 parses an int64
-func (su stringUtil) ParseInt64(input string) int64 {
-	result, err := strconv.ParseInt(input, 10, 64)
-	if err != nil {
-		return int64(0)
-	}
-	return result
-}
-
-// IntToString turns an int into a string
-func (su stringUtil) IntToString(input int) string {
+// FromInt turns an int into a string
+func (su stringUtil) FromInt(input int) string {
 	return strconv.Itoa(input)
 }
 
-// Int64ToString turns an int64 into a string
-func (su stringUtil) Int64ToString(input int64) string {
+// FromInt64 turns an int64 into a string
+func (su stringUtil) FromInt64(input int64) string {
 	return strconv.FormatInt(input, 10)
 }
 
-// Float32ToString turns an float32 into a string
-func (su stringUtil) Float32ToString(input float32) string {
-	return strconv.FormatFloat(float64(input), 'f', -1, 32)
+// FromFloat64 turns an float64 into a string
+func (su stringUtil) FromFloat64(input float64) string {
+	return strconv.FormatFloat(input, 'f', -1, 64)
 }
 
-// Float64ToString turns an float64 into a string
-func (su stringUtil) Float64ToString(input float64) string {
-	return strconv.FormatFloat(input, 'f', -1, 64)
+// Money turns an float64 into a string
+func (su stringUtil) Money(money float64) string {
+	return fmt.Sprintf("%.2f", money)
 }
 
 // StripQuotes removes quote characters from a string.
@@ -367,7 +377,7 @@ func (su stringUtil) TrimTo(val string, length int) string {
 
 // TrimWhitespace trims spaces and tabs from a string.
 func (su stringUtil) TrimWhitespace(input string) string {
-	return strings.Trim(input, " \t")
+	return strings.TrimSpace(input)
 }
 
 // IsCamelCase returns if a string is CamelCased.
@@ -441,4 +451,138 @@ func (su stringUtil) FixedWidthLeftAligned(text string, width int) string {
 	}
 	fixedToken := fmt.Sprintf("%%-%ds", width)
 	return fmt.Sprintf(fixedToken, text)
+}
+
+func (su stringUtil) SplitOnSpace(text string) (output []string) {
+	if len(text) == 0 {
+		return
+	}
+
+	var state int
+	var word string
+	for _, r := range text {
+		switch state {
+		case 0: // word
+			if unicode.IsSpace(r) {
+				if len(word) > 0 {
+					output = append(output, word)
+					word = ""
+				}
+				state = 1
+			} else {
+				word = word + string(r)
+			}
+		case 1:
+			if !unicode.IsSpace(r) {
+				word = string(r)
+				state = 0
+			}
+		}
+	}
+
+	if len(word) > 0 {
+		output = append(output, word)
+	}
+	return
+}
+
+// Tokenize replaces a given set of tokens in a corpus.
+// Tokens should appear in the corpus in the form ${[KEY]} where [KEY] is the key in the map.
+// Examples: corpus: "foo/${bar}/baz", { "${bar}": "bailey" } => "foo/bailey/baz"
+// UTF-8 is handled via. runes.
+func (su stringUtil) Tokenize(corpus string, tokens map[string]string) string {
+	// there is no way to escape anything smaller than [3] b/c len("${}") == 3
+	if len(corpus) < 3 {
+		return corpus
+	}
+	// sanity check on tokens collection.
+	if tokens == nil || len(tokens) == 0 {
+		return corpus
+	}
+
+	output := bytes.NewBuffer(nil)
+
+	start0 := rune('$')
+	start1 := rune('{')
+	end0 := rune('}')
+
+	var state int
+	// working token is the full token (including ${ and }).
+	// wokring key is the stuff within the ${ and }.
+	var workingToken, workingKey *bytes.Buffer
+	var key string
+
+	for _, c := range corpus {
+		switch state {
+		case 0: // non-token, add to output
+			if c == start0 {
+				state = 1
+				workingToken = bytes.NewBuffer(nil)
+				workingToken.WriteRune(c)
+				continue
+			}
+			output.WriteRune(c)
+			continue
+		case 1:
+			if c == start1 {
+				state = 2 //consume token key
+				workingToken.WriteRune(c)
+				workingKey = bytes.NewBuffer(nil)
+				continue
+			}
+			state = 0
+			output.WriteString(workingToken.String())
+			output.WriteRune(c)
+			workingToken = nil
+			workingKey = nil
+			continue
+		case 2:
+			if c == end0 {
+				workingToken.WriteRune(c)
+				// lookup replacement token.
+				key = workingKey.String()
+				if value, hasValue := tokens[key]; hasValue {
+					output.WriteString(value)
+				} else {
+					output.WriteString(workingToken.String())
+				}
+				workingToken = nil
+				workingKey = nil
+				state = 0
+				continue
+			}
+			if c == start0 {
+				state = 3
+				workingToken.WriteRune(c)
+				workingKey.WriteRune(c)
+				continue
+			}
+			workingToken.WriteRune(c)
+			workingKey.WriteRune(c)
+			continue
+		case 3:
+			if c == start1 {
+				state = 4
+				workingToken.WriteRune(c)
+				workingKey.WriteRune(c)
+				continue
+			}
+			state = 2
+			workingToken.WriteRune(c)
+			workingKey.WriteRune(c)
+			continue
+		case 4:
+			if c == end0 {
+				state = 2
+				workingToken.WriteRune(c)
+				workingKey.WriteRune(c)
+				continue
+			}
+			workingToken.WriteRune(c)
+			workingKey.WriteRune(c)
+			continue
+		}
+	}
+
+	return output.String()
 }

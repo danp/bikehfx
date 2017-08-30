@@ -135,15 +135,15 @@ func (tu timeUtil) ParseDuration(duration string) time.Duration {
 	var consumeValues = func() {
 		switch labelValue {
 		case "h":
-			hours = String.ParseInt64(numberValue)
+			hours = Parse.Int64(numberValue)
 		case "m":
-			minutes = String.ParseInt64(numberValue)
+			minutes = Parse.Int64(numberValue)
 		case "s":
-			seconds = String.ParseInt64(numberValue)
+			seconds = Parse.Int64(numberValue)
 		case "ms":
-			milliseconds = String.ParseInt64(numberValue)
+			milliseconds = Parse.Int64(numberValue)
 		case "µs":
-			microseconds = String.ParseInt64(numberValue)
+			microseconds = Parse.Int64(numberValue)
 		}
 	}
 

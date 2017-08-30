@@ -56,6 +56,42 @@ func (mu mathUtil) MinAndMax(values ...float64) (min float64, max float64) {
 	return
 }
 
+// MinAndMaxOfInt returns both the min and max in one pass.
+func (mu mathUtil) MinAndMaxOfInt(values ...int) (min int, max int) {
+	if len(values) == 0 {
+		return
+	}
+	min = values[0]
+	max = values[0]
+	for _, v := range values {
+		if max < v {
+			max = v
+		}
+		if min > v {
+			min = v
+		}
+	}
+	return
+}
+
+// MinAndMaxOfInt64 returns both the min and max in one pass.
+func (mu mathUtil) MinAndMaxOfInt64(values ...int64) (min int64, max int64) {
+	if len(values) == 0 {
+		return
+	}
+	min = values[0]
+	max = values[0]
+	for _, v := range values {
+		if max < v {
+			max = v
+		}
+		if min > v {
+			min = v
+		}
+	}
+	return
+}
+
 // Min finds the lowest value in a slice.
 func (mu mathUtil) Min(input []float64) float64 {
 	if len(input) == 0 {

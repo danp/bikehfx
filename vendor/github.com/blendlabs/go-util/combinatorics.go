@@ -9,9 +9,41 @@ var (
 
 type combinatorics struct{}
 
+// PairsOfInt returns unordered pairs of integers from an array.
+func (c combinatorics) PairsOfInt(values ...int) [][2]int {
+	if len(values) == 0 {
+		return nil
+	}
+
+	var output [][2]int
+	for i := 0; i < len(values); i++ {
+		for j := i + 1; j < len(values); j++ {
+			output = append(output, [2]int{values[i], values[j]})
+		}
+	}
+
+	return output
+}
+
+// PairsOfFloat64 returns unordered pairs of integers from an array.
+func (c combinatorics) PairsOfFloat64(values ...float64) [][2]float64 {
+	if len(values) == 0 {
+		return nil
+	}
+
+	var output [][2]float64
+	for i := 0; i < len(values); i++ {
+		for j := i + 1; j < len(values); j++ {
+			output = append(output, [2]float64{values[i], values[j]})
+		}
+	}
+
+	return output
+}
+
 // CombinationsOfInt returns the "power set" of values less the empty set.
 // Use "combinations" when the order of the resulting sets do not matter.
-func (c combinatorics) CombinationsOfInt(values []int) [][]int {
+func (c combinatorics) CombinationsOfInt(values ...int) [][]int {
 	possibleValues := Math.PowOfInt(2, uint(len(values))) //less the empty entry
 	output := make([][]int, possibleValues-1)
 
@@ -32,7 +64,7 @@ func (c combinatorics) CombinationsOfInt(values []int) [][]int {
 
 // CombinationsOfFloat returns the "power set" of values less the empty set.
 // Use "combinations" when the order of the resulting sets do not matter.
-func (c combinatorics) CombinationsOfFloat(values []float64) [][]float64 {
+func (c combinatorics) CombinationsOfFloat(values ...float64) [][]float64 {
 	possibleValues := Math.PowOfInt(2, uint(len(values))) //less the empty entry
 	output := make([][]float64, possibleValues-1)
 
@@ -53,7 +85,7 @@ func (c combinatorics) CombinationsOfFloat(values []float64) [][]float64 {
 
 // CombinationsOfString returns the "power set" of values less the empty set.
 // Use "combinations" when the order of the resulting sets do not matter.
-func (c combinatorics) CombinationsOfString(values []string) [][]string {
+func (c combinatorics) CombinationsOfString(values ...string) [][]string {
 	possibleValues := Math.PowOfInt(2, uint(len(values))) //less the empty entry
 	output := make([][]string, possibleValues-1)
 
@@ -74,7 +106,7 @@ func (c combinatorics) CombinationsOfString(values []string) [][]string {
 
 // PermutationsOfInt returns the possible orderings of the values array.
 // Use "permutations" when order matters.
-func (c combinatorics) PermutationsOfInt(values []int) [][]int {
+func (c combinatorics) PermutationsOfInt(values ...int) [][]int {
 	if len(values) == 1 {
 		return [][]int{values}
 	}
@@ -89,7 +121,7 @@ func (c combinatorics) PermutationsOfInt(values []int) [][]int {
 
 		joined := append(pre, post...)
 
-		for _, inner := range c.PermutationsOfInt(joined) {
+		for _, inner := range c.PermutationsOfInt(joined...) {
 			output = append(output, append([]int{value}, inner...))
 		}
 	}
@@ -99,7 +131,7 @@ func (c combinatorics) PermutationsOfInt(values []int) [][]int {
 
 // PermutationsOfFloat returns the possible orderings of the values array.
 // Use "permutations" when order matters.
-func (c combinatorics) PermutationsOfFloat(values []float64) [][]float64 {
+func (c combinatorics) PermutationsOfFloat(values ...float64) [][]float64 {
 	if len(values) == 1 {
 		return [][]float64{values}
 	}
@@ -114,7 +146,7 @@ func (c combinatorics) PermutationsOfFloat(values []float64) [][]float64 {
 
 		joined := append(pre, post...)
 
-		for _, inner := range c.PermutationsOfFloat(joined) {
+		for _, inner := range c.PermutationsOfFloat(joined...) {
 			output = append(output, append([]float64{value}, inner...))
 		}
 	}
@@ -122,9 +154,9 @@ func (c combinatorics) PermutationsOfFloat(values []float64) [][]float64 {
 	return output
 }
 
-// PermutationsOfString returns the possible orderings of the values array.
-// Use "permutations" when order matters.
-func (c combinatorics) PermutationsOfString(values []string) [][]string {
+// PermutationsOfString returns the possible orderings of the values array (i.e. when order matters).
+// Note: Use "combinations" when order doesn't matter.
+func (c combinatorics) PermutationsOfString(values ...string) [][]string {
 	if len(values) == 1 {
 		return [][]string{values}
 	}
@@ -137,11 +169,37 @@ func (c combinatorics) PermutationsOfString(values []string) [][]string {
 		pre := workingValues[0:x]
 		post := workingValues[x+1 : len(values)]
 		joined := append(pre, post...)
-		for _, inner := range c.PermutationsOfString(joined) {
+		for _, inner := range c.PermutationsOfString(joined...) {
 			output = append(output, append([]string{value}, inner...))
 		}
 	}
 
+	return output
+}
+
+// Anagrams is a form of permutations that is of a fixed length (i.e. order matters).
+// It is very similar to permutations of string but uses word inputs instead of individual strings.
+func (c combinatorics) Anagrams(word string) []string {
+	if len(word) <= 1 {
+		return []string{word}
+	}
+
+	output := []string{}
+	var letter byte
+	var pre []byte
+	var post []byte
+	var joined []byte
+	for x := 0; x < len(word); x++ {
+		workingWord := make([]byte, len(word))
+		copy(workingWord, []byte(word))
+		letter = workingWord[x]
+		pre = workingWord[0:x]
+		post = workingWord[x+1 : len(word)]
+		joined = append(pre, post...)
+		for _, subResult := range c.Anagrams(string(joined)) {
+			output = append(output, string(letter)+subResult)
+		}
+	}
 	return output
 }
 
@@ -179,7 +237,7 @@ func (c combinatorics) PermuteDistributionsFromExisting(total, buckets int, exis
 }
 
 // RandomInt returns a random int from an array.
-func (c combinatorics) RandomInt(values []int) int {
+func (c combinatorics) RandomInt(values ...int) int {
 	if len(values) == 0 {
 		return 0
 	}
@@ -190,7 +248,7 @@ func (c combinatorics) RandomInt(values []int) int {
 }
 
 // RandomFloat64 returns a random int from an array.
-func (c combinatorics) RandomFloat64(values []float64) float64 {
+func (c combinatorics) RandomFloat64(values ...float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
@@ -200,8 +258,8 @@ func (c combinatorics) RandomFloat64(values []float64) float64 {
 	return values[RandomProvider().Intn(len(values))]
 }
 
-// RandomFloat64 returns a random int from an array.
-func (c combinatorics) RandomString(values []string) string {
+// RandomString returns a random string from an array.
+func (c combinatorics) RandomString(values ...string) string {
 	if len(values) == 0 {
 		return ""
 	}
@@ -211,8 +269,8 @@ func (c combinatorics) RandomString(values []string) string {
 	return values[RandomProvider().Intn(len(values))]
 }
 
-// RandomFloat64 returns a random int from an array.
-func (c combinatorics) RandomTime(values []time.Time) time.Time {
+// RandomTime returns a random time.Time from an array.
+func (c combinatorics) RandomTime(values ...time.Time) time.Time {
 	if len(values) == 0 {
 		return time.Time{}
 	}

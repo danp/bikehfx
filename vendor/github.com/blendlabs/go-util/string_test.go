@@ -30,28 +30,28 @@ func TestRegexMatch(t *testing.T) {
 func TestParse(t *testing.T) {
 	assert := assert.New(t)
 
-	good := String.ParseFloat64("3.14")
-	bad := String.ParseFloat64("I Am Dog")
+	good := Parse.Float64("3.14")
+	bad := Parse.Float64("I Am Dog")
 	assert.Equal(3.14, good)
 	assert.Equal(0.0, bad)
 
-	good32 := String.ParseFloat32("3.14")
-	bad32 := String.ParseFloat32("I Am Dog")
+	good32 := Parse.Float32("3.14")
+	bad32 := Parse.Float32("I Am Dog")
 	assert.Equal(3.14, good32)
 	assert.Equal(0.0, bad32)
 
-	goodInt := String.ParseInt("3")
-	badInt := String.ParseInt("I Am Dog")
+	goodInt := Parse.Int("3")
+	badInt := Parse.Int("I Am Dog")
 	assert.Equal(3, goodInt)
 	assert.Equal(0.0, badInt)
 
-	strGood := String.Float64ToString(3.14)
+	strGood := String.FromFloat64(3.14)
 	assert.Equal("3.14", strGood)
 
-	strGood = String.Float32ToString(3.14)
-	assert.Equal("3.14", strGood)
+	strGood = String.FromInt(3)
+	assert.Equal("3", strGood)
 
-	strGood = String.IntToString(3)
+	strGood = String.FromInt64(3)
 	assert.Equal("3", strGood)
 }
 
@@ -67,7 +67,7 @@ func TestTrimWhitespace(t *testing.T) {
 		{"test\t", "test"},
 		{"\ttest\t", "test"},
 		{" \ttest\t ", "test"},
-		{" \ttest\n\t ", "test\n"},
+		{" \ttest\n\t ", "test"},
 	}
 
 	for _, test := range tests {
@@ -263,4 +263,90 @@ func TestStringFixedWidthLeftAligned(t *testing.T) {
 
 	assert.Equal("abc   ", String.FixedWidthLeftAligned("abc", 6))
 	assert.Equal("a", String.FixedWidthLeftAligned("abc", 1))
+}
+
+func TestTrimPrefixCaseInsensitive(t *testing.T) {
+	assert := assert.New(t)
+
+	assert.Equal("def", String.TrimPrefixCaseInsensitive("abcdef", "abc"))
+	assert.Equal("def", String.TrimPrefixCaseInsensitive("abcdef", "ABC"))
+	assert.Equal("DEF", String.TrimPrefixCaseInsensitive("abcDEF", "abc"))
+	assert.Equal("abcdef", String.TrimPrefixCaseInsensitive("abcdef", "foo"))
+	assert.Equal("abc", String.TrimPrefixCaseInsensitive("abc", "abcdef"))
+}
+
+func TestTrimSuffixCaseInsensitive(t *testing.T) {
+	assert := assert.New(t)
+
+	assert.Equal("abc", String.TrimSuffixCaseInsensitive("abcdef", "def"))
+	assert.Equal("ab2", String.TrimSuffixCaseInsensitive("ab2def", "DEF"))
+	assert.Equal("ab3", String.TrimSuffixCaseInsensitive("ab3DEF", "def"))
+	assert.Equal("abcdef", String.TrimSuffixCaseInsensitive("abcdef", "foo"))
+	assert.Equal("abc", String.TrimSuffixCaseInsensitive("abc", "abcdef"))
+}
+
+func TestSplitOnSpace(t *testing.T) {
+	assert := assert.New(t)
+
+	values := String.SplitOnSpace("")
+	assert.Len(values, 0)
+
+	values = String.SplitOnSpace("foo")
+	assert.Len(values, 1)
+	assert.Equal("foo", values[0])
+
+	values = String.SplitOnSpace("foo bar")
+	assert.Len(values, 2)
+	assert.Equal("foo", values[0])
+	assert.Equal("bar", values[1])
+
+	values = String.SplitOnSpace("foo  bar")
+	assert.Len(values, 2)
+	assert.Equal("foo", values[0])
+	assert.Equal("bar", values[1])
+
+	values = String.SplitOnSpace("foo\tbar")
+	assert.Len(values, 2)
+	assert.Equal("foo", values[0])
+	assert.Equal("bar", values[1])
+
+	values = String.SplitOnSpace("foo \tbar")
+	assert.Len(values, 2)
+	assert.Equal("foo", values[0])
+	assert.Equal("bar", values[1])
+
+	values = String.SplitOnSpace("foo bar  ")
+	assert.Len(values, 2)
+	assert.Equal("foo", values[0])
+	assert.Equal("bar", values[1])
+
+	values = String.SplitOnSpace("foo bar baz")
+	assert.Len(values, 3)
+	assert.Equal("foo", values[0])
+	assert.Equal("bar", values[1])
+	assert.Equal("baz", values[2])
+}
+
+type tokenizeTestCase struct {
+	corpus   string
+	tokens   map[string]string
+	expected string
+	message  string
+}
+
+func TestStringTokenize(t *testing.T) {
+	assert := assert.New(t)
+
+	testCases := []tokenizeTestCase{
+		{corpus: "", expected: "", message: "should handle the empty input case"},
+		{corpus: "ff", expected: "ff", message: "should handle the (nearly) empty input case"},
+		{corpus: "foo/${bar}/baz", expected: "foo/bailey/baz", tokens: map[string]string{"bar": "bailey"}, message: "should handle escaping a single variable"},
+		{corpus: "foo/${what}/baz", expected: "foo/${what}/baz", tokens: map[string]string{"bar": "bailey"}, message: "should handle unknown variables"},
+		{corpus: "foo/${bar}/baz/${buzz}", expected: "foo/bailey/baz/dog", tokens: map[string]string{"bar": "bailey", "buzz": "dog"}, message: "should handle escaping multiple variables"},
+		{corpus: "foo/${bar${buzz}foo}/bar", expected: "foo/${bar${buzz}foo}/bar", tokens: map[string]string{"bar": "bailey", "buzz": "dog"}, message: "nesting variables should produce a weird key"},
+	}
+
+	for _, testCase := range testCases {
+		assert.Equal(testCase.expected, String.Tokenize(testCase.corpus, testCase.tokens), testCase.message)
+	}
 }

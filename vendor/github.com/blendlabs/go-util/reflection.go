@@ -33,6 +33,14 @@ func (ru reflectionUtil) FollowValuePointer(v reflect.Value) interface{} {
 	return val.Interface()
 }
 
+// FollowType derefs a type until it isn't a pointer or an interface.
+func (ru reflectionUtil) FollowType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Ptr || t.Kind() == reflect.Interface {
+		t = t.Elem()
+	}
+	return t
+}
+
 // FollowValue derefs a value until it isn't a pointer or an interface.
 func (ru reflectionUtil) FollowValue(v reflect.Value) reflect.Value {
 	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
@@ -107,51 +115,78 @@ func (ru reflectionUtil) SetValueByName(target interface{}, fieldName string, fi
 }
 
 // SetValueByName sets a value on an object by its field name.
-func (ru reflectionUtil) SetValueByNameFromType(obj interface{}, targetType reflect.Type, targetValue reflect.Value, fieldName string, fieldValue interface{}) error {
-	relevantField := ru.GetFieldByNameOrJSONTag(targetType, fieldName)
+func (ru reflectionUtil) SetValueByNameFromType(obj interface{}, targetType reflect.Type, targetValue reflect.Value, fieldName string, fieldValue interface{}) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = exception.Newf("panic setting value by name").WithMessagef("field: %s panic: %v", fieldName, r)
+		}
+	}()
 
+	relevantField := ru.GetFieldByNameOrJSONTag(targetType, fieldName)
 	if relevantField == nil {
-		return exception.Newf("Invalid field for %s `%s`", targetType.Name(), fieldName)
+		err = exception.New("unknown field").WithMessagef("%s `%s`", targetType.Name(), fieldName)
+		return
 	}
 
 	field := targetValue.FieldByName(relevantField.Name)
 	if !field.CanSet() {
-		return exception.Newf("Cannot set field for %s `%s`", targetType.Name(), fieldName)
+		err = exception.New("cannot set field").WithMessagef("%s `%s`", targetType.Name(), fieldName)
+		return
 	}
 
 	fieldType := field.Type()
-	valueReflected := ru.ReflectValue(fieldValue)
-	if !valueReflected.IsValid() {
-		return exception.Newf("Invalid field for %s `%s`", targetType.Name(), fieldName)
+	value := ru.ReflectValue(fieldValue)
+	valueType := value.Type()
+	if !value.IsValid() {
+		err = exception.New("invalid value").WithMessagef("%s `%s`", targetType.Name(), fieldName)
+		return
 	}
 
-	if valueReflected.Type().AssignableTo(fieldType) {
-		if field.Kind() == reflect.Ptr && valueReflected.CanAddr() {
-			field.Set(valueReflected.Addr())
-		} else {
-			field.Set(valueReflected)
+	assigned, assignErr := ru.tryAssignment(fieldType, valueType, field, value)
+	if assignErr != nil {
+		err = assignErr
+		return
+	}
+	if !assigned {
+		err = exception.New("cannot set field").WithMessagef("%s `%s`", targetType.Name(), fieldName)
+		return
+	}
+	return
+}
+
+func (ru reflectionUtil) tryAssignment(fieldType, valueType reflect.Type, field, value reflect.Value) (assigned bool, err error) {
+	if valueType.AssignableTo(fieldType) {
+		field.Set(value)
+		assigned = true
+		return
+	}
+
+	if valueType.ConvertibleTo(fieldType) {
+		convertedValue := value.Convert(fieldType)
+		if convertedValue.Type().AssignableTo(fieldType) {
+			field.Set(convertedValue)
+			assigned = true
+			return
 		}
-		return nil
 	}
 
-	if field.Kind() == reflect.Ptr {
-		if valueReflected.CanAddr() {
-			if fieldType.Elem() == valueReflected.Type() {
-				field.Set(valueReflected.Addr())
-			} else {
-				convertedValue := valueReflected.Convert(fieldType.Elem())
-				if convertedValue.CanAddr() {
-					field.Set(convertedValue.Addr())
-				}
-			}
+	if fieldType.Kind() == reflect.Ptr {
+		if valueType.AssignableTo(fieldType.Elem()) {
+			elem := reflect.New(fieldType.Elem())
+			elem.Elem().Set(value)
+			field.Set(elem)
+			assigned = true
+			return
+		} else if valueType.ConvertibleTo(fieldType.Elem()) {
+			elem := reflect.New(fieldType.Elem())
+			elem.Elem().Set(value.Convert(fieldType.Elem()))
+			field.Set(elem)
+			assigned = true
+			return
 		}
-		return exception.Newf("Cannot take address of value: %#v", fieldValue)
 	}
 
-	convertedValue := valueReflected.Convert(fieldType)
-	field.Set(convertedValue)
-
-	return nil
+	return
 }
 
 // PatchObject updates an object based on a map of field names to values.
@@ -292,7 +327,7 @@ func (ru reflectionUtil) Decompose(object interface{}) map[string]interface{} {
 }
 
 // checks if a value is a zero value or its types default value
-func isZero(v reflect.Value) bool {
+func (ru reflectionUtil) IsZero(v reflect.Value) bool {
 	if !v.IsValid() {
 		return true
 	}
@@ -302,13 +337,13 @@ func isZero(v reflect.Value) bool {
 	case reflect.Array:
 		z := true
 		for i := 0; i < v.Len(); i++ {
-			z = z && isZero(v.Index(i))
+			z = z && ru.IsZero(v.Index(i))
 		}
 		return z
 	case reflect.Struct:
 		z := true
 		for i := 0; i < v.NumField(); i++ {
-			z = z && isZero(v.Field(i))
+			z = z && ru.IsZero(v.Field(i))
 		}
 		return z
 	}
@@ -317,9 +352,8 @@ func isZero(v reflect.Value) bool {
 	return v.Interface() == z.Interface()
 }
 
-// Given a the name of a type variable, determines if the variable is exported
-// by checking if first variable is capitalilzed
-func isExported(fieldName string) bool {
+// IsExported returns if a field is exported given its name and capitalization.
+func (ru reflectionUtil) IsExported(fieldName string) bool {
 	return fieldName != "" && strings.ToUpper(fieldName)[0] == fieldName[0]
 }
 
@@ -333,7 +367,7 @@ func (ru reflectionUtil) CoalesceFields(object interface{}) {
 			field := objectType.Field(index)
 			fieldValue := objectValue.Field(index)
 			// only alter the field if it is exported (uppercase variable name) and is not already a non-zero value
-			if isExported(field.Name) && isZero(fieldValue) {
+			if ru.IsExported(field.Name) && ru.IsZero(fieldValue) {
 				alternateFieldNames := strings.Split(field.Tag.Get("coalesce"), ",")
 
 				// find the first non-zero value in the list of backup values
@@ -341,14 +375,14 @@ func (ru reflectionUtil) CoalesceFields(object interface{}) {
 					alternateFieldName := alternateFieldNames[j]
 					alternateValue := objectValue.FieldByName(alternateFieldName)
 					// will panic if trying to set a non-exported value or a zero value, so ignore those
-					if isExported(alternateFieldName) && !isZero(alternateValue) {
+					if ru.IsExported(alternateFieldName) && !ru.IsZero(alternateValue) {
 						fieldValue.Set(alternateValue)
 						break
 					}
 				}
 			}
 			// recurse, in case nested values of this field need to be set as well
-			if isExported(field.Name) && !isZero(fieldValue) {
+			if ru.IsExported(field.Name) && !ru.IsZero(fieldValue) {
 				ru.CoalesceFields(fieldValue.Addr().Interface())
 			}
 		}

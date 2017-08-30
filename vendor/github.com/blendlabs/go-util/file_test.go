@@ -11,8 +11,9 @@ func TestFileReadByLines(t *testing.T) {
 	assert := assert.New(t)
 
 	called := false
-	File.ReadByLines("README.md", func(line string) {
+	File.ReadByLines("README.md", func(line string) error {
 		called = true
+		return nil
 	})
 
 	assert.True(called, "We should have called the handler for `README.md`")
@@ -22,8 +23,9 @@ func TestFileReadByChunks(t *testing.T) {
 	assert := assert.New(t)
 
 	called := false
-	File.ReadByChunks("README.md", 32, func(chunk []byte) {
+	File.ReadByChunks("README.md", 32, func(chunk []byte) error {
 		called = true
+		return nil
 	})
 
 	assert.True(called, "We should have called the handler for `README.md`")
@@ -32,7 +34,7 @@ func TestFileReadByChunks(t *testing.T) {
 func TestFileCreateOrOpen(t *testing.T) {
 	assert := assert.New(t)
 
-	tempFilePath := UUIDv4().ToShortString()
+	tempFilePath := "test_file"
 	f, err := File.CreateOrOpen(tempFilePath)
 	assert.Nil(err)
 	assert.NotNil(f)
@@ -47,7 +49,7 @@ func TestFileCreateOrOpen(t *testing.T) {
 func TestFileCreateOrOpenExisting(t *testing.T) {
 	assert := assert.New(t)
 
-	tempFilePath := UUIDv4().ToShortString()
+	tempFilePath := "test_file"
 
 	orig, err := os.Create(tempFilePath)
 	assert.Nil(err)
