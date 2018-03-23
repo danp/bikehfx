@@ -1,6 +1,7 @@
 package ecocounter
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -94,6 +95,25 @@ func TestGetDatapoints_NoData(t *testing.T) {
 	}
 }
 
+func ExampleClient_GetDatapoints() {
+	var (
+		cl    Client
+		begin = time.Unix(1521504000, 0) // 2018-03-20
+		end   = begin
+	)
+
+	// 100036476 is the Halifax University Ave Arts Centre counter,
+	// on the web at http://www.eco-public.com/public2/?id=100036476.
+	ds, err := cl.GetDatapoints("100036476", begin, end, ResolutionHour)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, d := range ds {
+		fmt.Println("for hour", d.Time, "there were", d.Count, "bike trips counted")
+	}
+}
+
 func TestGetNonPublicDatapoints(t *testing.T) {
 	var (
 		begin = time.Unix(1521504000, 0)
@@ -148,5 +168,25 @@ func TestGetNonPublicDatapoints(t *testing.T) {
 
 	if got, want := ds[1].Count, 255; got != want {
 		t.Errorf("got ds[1].Count %d, want %d", got, want)
+	}
+}
+
+func ExampleClient_GetNonPublicDatapoints() {
+	var (
+		cl    Client
+		begin = time.Unix(1521504000, 0) // 2018-03-20
+		end   = begin
+	)
+
+	// Fetch datapoints for the South Park Street counter, listed at
+	// http://www.eco-public.com/ParcPublic/?id=4638 but doesn't have its
+	// own page.
+	ds, err := cl.GetNonPublicDatapoints("4638", []string{"101039526", "102039526"}, begin, end)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, d := range ds {
+		fmt.Println("for hour", d.Time, "there were", d.Count, "bike trips counted")
 	}
 }
