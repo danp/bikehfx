@@ -12,12 +12,13 @@ import (
 )
 
 // A Resolution is used when retrieving data using GetDatapoints.
-// Currently only day and hour are supported.
 type Resolution int
 
 const (
+	// ResolutionFifteenMinute requests data at 15 minute resolution.
+	ResolutionFifteenMinute Resolution = 2
 	// ResolutionHour requests hourly data.
-	ResolutionHour Resolution = 2
+	ResolutionHour Resolution = 3
 	// ResolutionDay requests daily data.
 	ResolutionDay Resolution = 4
 )
