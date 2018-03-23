@@ -34,10 +34,11 @@ func main() {
 	case "hour":
 		cres = ecocounter.ResolutionHour
 	default:
-		log.Fatalf("unknown resolution %q, try day or hour")
+		log.Fatalf("unknown resolution %q, try day or hour", *res)
 	}
 
-	ds, err := ecocounter.GetDatapoints(*id, bd, ed, cres)
+	var cl ecocounter.Client
+	ds, err := cl.GetDatapoints(*id, bd, ed, cres)
 	if err != nil {
 		log.Fatal(err)
 	}

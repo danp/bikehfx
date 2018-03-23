@@ -80,8 +80,10 @@ func graph(w http.ResponseWriter, r *http.Request) {
 	data := make(map[string]dps)
 	var max int
 
+	var cl ecocounter.Client
+
 	for _, id := range counters {
-		ds, err := ecocounter.GetDatapoints(id, bd, ed, cres)
+		ds, err := cl.GetDatapoints(id, bd, ed, cres)
 		if err != nil {
 			log.Fatal(err)
 		}

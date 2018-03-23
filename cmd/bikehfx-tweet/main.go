@@ -56,6 +56,8 @@ func main() {
 		day = d
 	}
 
+	var ecl ecocounter.Client
+
 	type ccount struct {
 		name  string
 		count int
@@ -64,7 +66,7 @@ func main() {
 
 	var tot int
 	for _, c := range counters {
-		count, err := get(c, day)
+		count, err := get(&ecl, c, day)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -93,7 +95,7 @@ func main() {
 	}
 	log.Printf("at=tweet stxt=%q", stxt)
 
-	gb, err := makeHourlyGraph(day)
+	gb, err := makeHourlyGraph(&ecl, day)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,8 +127,8 @@ func main() {
 	fmt.Println("https://twitter.com/" + tw.User.ScreenName + "/status/" + tw.IDStr)
 }
 
-func get(c counter, day time.Time) (int, error) {
-	ds, err := ecocounter.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionDay)
+func get(cl *ecocounter.Client, c counter, day time.Time) (int, error) {
+	ds, err := cl.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionDay)
 	if err != nil {
 		return 0, err
 	}

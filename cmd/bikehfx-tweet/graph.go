@@ -9,14 +9,14 @@ import (
 	chart "github.com/wcharczuk/go-chart"
 )
 
-func makeHourlyGraph(day time.Time) ([]byte, error) {
+func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
 	var (
 		series = []chart.Series{}
 		max    int
 	)
 
 	for i, c := range counters {
-		ds, err := ecocounter.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionHour)
+		ds, err := cl.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionHour)
 		if err != nil {
 			return nil, err
 		}
