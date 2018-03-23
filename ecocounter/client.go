@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// A Resolution is used when retreiving data using GetDatapoints.
+// A Resolution is used when retrieving data using GetDatapoints.
 // Currently only day and hour are supported.
 type Resolution int
 
