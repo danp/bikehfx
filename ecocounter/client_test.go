@@ -30,7 +30,7 @@ func TestGetDatapoints(t *testing.T) {
 		wantValues := url.Values{
 			"begin": []string{begin.Format(requestDateFormat)},
 			"end":   []string{end.Format(requestDateFormat)},
-			"step":  []string{"2"},
+			"step":  []string{"3"},
 		}
 		if got := r.URL.Query(); !reflect.DeepEqual(got, wantValues) {
 			t.Errorf("got query values\n%+v\nwant\n%+v", got, wantValues)

@@ -33,6 +33,8 @@ func main() {
 		cres = ecocounter.ResolutionDay
 	case "hour":
 		cres = ecocounter.ResolutionHour
+	case "15m":
+		cres = ecocounter.ResolutionFifteenMinute
 	default:
 		log.Fatalf("unknown resolution %q, try day or hour", *res)
 	}
