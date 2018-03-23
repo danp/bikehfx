@@ -171,11 +171,6 @@ func (c Client) GetNonPublicDatapoints(orgID string, directionIDs []string, begi
 			continue
 		}
 
-		// ["08/22/2017","0.0"] vs the final just number
-		if len(y) != 2 {
-			continue
-		}
-
 		dt := y[0].(string)
 		d, err := time.Parse("01/02/2006", dt)
 		if err != nil {
