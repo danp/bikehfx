@@ -28,7 +28,3 @@
 [[constraint]]
   branch = "master"
   name = "github.com/joeshaw/envdecode"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/wcharczuk/go-chart"
