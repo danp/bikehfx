@@ -17,16 +17,71 @@ import (
 	"github.com/joeshaw/envdecode"
 )
 
-type counter struct {
-	name  string
+type counter interface {
+	name() string
+	get(cl *ecocounter.Client, day time.Time) (int, error)
+}
+
+type publicCounter struct {
+	n     string
 	ecoID string
 }
 
-var counters = []counter{
-	{name: "Agri SB", ecoID: "100033965"},
-	{name: "Uni Rowe", ecoID: "100033028"},
-	{name: "Uni Arts", ecoID: "100036476"},
+func (p publicCounter) name() string {
+	return p.n
 }
+
+func (p publicCounter) get(cl *ecocounter.Client, day time.Time) (int, error) {
+	ds, err := cl.GetDatapoints(p.ecoID, day, day, ecocounter.ResolutionDay)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(ds) != 1 {
+		return 0, nil
+	}
+
+	return ds[0].Count, nil
+}
+
+type nonPublicCounter struct {
+	n            string
+	orgID        string
+	directionIDs []string
+}
+
+func (n nonPublicCounter) name() string {
+	return n.n
+}
+
+func (n nonPublicCounter) get(cl *ecocounter.Client, day time.Time) (int, error) {
+	ds, err := cl.GetNonPublicDatapoints(n.orgID, n.directionIDs, day, day)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(ds) != 1 {
+		return 0, nil
+	}
+
+	return ds[0].Count, nil
+}
+
+var (
+	// publicCounters are included in both daily total and top-N list for the day
+	// as well as the hourly graph.
+	publicCounters = []publicCounter{
+		{n: "Agricola SB", ecoID: "100033965"},
+		{n: "Uni Rowe", ecoID: "100033028"},
+		{n: "Uni Arts", ecoID: "100036476"},
+	}
+
+	// nonPublicCounters are only included in the daily total and top-N list.
+	// We can't fetch hourly data for them so they're not in the graph.
+	nonPublicCounters = []nonPublicCounter{
+		{n: "South Park SB", orgID: "4638", directionIDs: []string{"101039526", "102039526"}},
+	}
+)
 
 type Config struct {
 	TwitterConsumerKey    string `env:"TWITTER_CONSUMER_KEY,requried"`
@@ -56,7 +111,13 @@ func main() {
 		day = d
 	}
 
-	var ecl ecocounter.Client
+	var counters []counter
+	for _, c := range publicCounters {
+		counters = append(counters, c)
+	}
+	for _, c := range nonPublicCounters {
+		counters = append(counters, c)
+	}
 
 	type ccount struct {
 		name  string
@@ -64,13 +125,15 @@ func main() {
 	}
 	counts := make([]ccount, 0, len(counters))
 
+	var ecl ecocounter.Client
+
 	var tot int
 	for _, c := range counters {
-		count, err := get(&ecl, c, day)
+		count, err := c.get(&ecl, day)
 		if err != nil {
 			log.Fatal(err)
 		}
-		counts = append(counts, ccount{name: c.name, count: count})
+		counts = append(counts, ccount{name: c.name(), count: count})
 		tot += count
 	}
 	if tot == 0 {
@@ -93,7 +156,7 @@ func main() {
 		}
 		stxt += ctxt
 	}
-	log.Printf("at=tweet stxt=%q", stxt)
+	log.Printf("at=tweet stxt=%q len=%d", stxt, len(stxt))
 
 	gb, err := makeHourlyGraph(&ecl, day)
 	if err != nil {
@@ -125,19 +188,6 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println("https://twitter.com/" + tw.User.ScreenName + "/status/" + tw.IDStr)
-}
-
-func get(cl *ecocounter.Client, c counter, day time.Time) (int, error) {
-	ds, err := cl.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionDay)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(ds) != 1 {
-		return 0, nil
-	}
-
-	return ds[0].Count, nil
 }
 
 func uploadMedia(cl *http.Client, m []byte) (int64, error) {

@@ -15,14 +15,14 @@ func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
 		max    int
 	)
 
-	for i, c := range counters {
+	for i, c := range publicCounters {
 		ds, err := cl.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionHour)
 		if err != nil {
 			return nil, err
 		}
 
 		ts := chart.TimeSeries{
-			Name: c.name,
+			Name: c.name(),
 			Style: chart.Style{
 				StrokeDashArray: strokeDashArray(i),
 			},
