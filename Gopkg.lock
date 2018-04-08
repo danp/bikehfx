@@ -2,16 +2,16 @@
 
 
 [[projects]]
-  name = "github.com/blendlabs/go-exception"
-  packages = ["."]
-  revision = "1eb19b172d7ccae9d5ec8cb4b02529cf3c69ccbd"
-  version = "v1.0.0"
+  branch = "default"
+  name = "bitbucket.org/zombiezen/gopdf"
+  packages = ["pdf"]
+  revision = "1c63dc69751bc45441c2ce1f56b631c55294b4d5"
 
 [[projects]]
-  name = "github.com/blendlabs/go-util"
+  branch = "master"
+  name = "github.com/ajstarks/svgo"
   packages = ["."]
-  revision = "d7d69b3e9c98248ebaaa750776b0c0c7ae19c2d8"
-  version = "v1.0.1"
+  revision = "644b8db467afccf19a0692a3e31a1868e4287ab8"
 
 [[projects]]
   name = "github.com/cenkalti/backoff"
@@ -41,6 +41,7 @@
   branch = "master"
   name = "github.com/golang/freetype"
   packages = [
+    ".",
     "raster",
     "truetype"
   ]
@@ -60,16 +61,13 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/wcharczuk/go-chart"
+  name = "github.com/llgcode/draw2d"
   packages = [
     ".",
-    "drawing",
-    "matrix",
-    "roboto",
-    "seq",
-    "util"
+    "draw2dbase",
+    "draw2dimg"
   ]
-  revision = "11e380634bd594f5635f2f8e89a6e8c075ec1222"
+  revision = "274031cf2abe8acd15c4a911e1f7f1295fc4830c"
 
 [[projects]]
   branch = "master"
@@ -78,7 +76,9 @@
     "draw",
     "font",
     "math/f64",
-    "math/fixed"
+    "math/fixed",
+    "tiff",
+    "tiff/lzw"
   ]
   revision = "f3a9b89b59def9194717c1d0bd4c0d08fa1afa7b"
 
@@ -88,9 +88,46 @@
   packages = ["context"]
   revision = "6078986fec03a1dcc236c34816c71b0e05018fda"
 
+[[projects]]
+  branch = "master"
+  name = "gonum.org/v1/gonum"
+  packages = [
+    "blas",
+    "blas/blas64",
+    "blas/gonum",
+    "floats",
+    "internal/asm/c128",
+    "internal/asm/f32",
+    "internal/asm/f64",
+    "internal/math32",
+    "lapack",
+    "lapack/gonum",
+    "lapack/lapack64",
+    "mat"
+  ]
+  revision = "6b03bc22e15aece534f0b4fb96cf6c8f1d885cd0"
+
+[[projects]]
+  branch = "master"
+  name = "gonum.org/v1/plot"
+  packages = [
+    ".",
+    "palette",
+    "plotter",
+    "tools/bezier",
+    "vg",
+    "vg/draw",
+    "vg/fonts",
+    "vg/vgeps",
+    "vg/vgimg",
+    "vg/vgpdf",
+    "vg/vgsvg"
+  ]
+  revision = "d96009811a2494d1beceab94c0383fed3d08453f"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "cf4beb8585d7c631df77cd94b20ae112d7c2227f4c4e757a2219bfeff798e3c0"
+  inputs-digest = "7db4791e9eb455492dba45dd9062b036b34695a28578d1508402877d542da691"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -2,18 +2,29 @@ package main
 
 import (
 	"bytes"
-	"fmt"
+	"image/color"
 	"time"
 
 	"github.com/danp/bikehfx/ecocounter"
-	chart "github.com/wcharczuk/go-chart"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/vg"
 )
 
 func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
-	var (
-		series = []chart.Series{}
-		max    int
-	)
+	p, err := plot.New()
+	if err != nil {
+		return nil, err
+	}
+	p.Title.Text = "Hourly counts for " + day.Format("Mon Jan 2")
+	p.X.Tick.Marker = hourTicker(day)
+	p.X.Label.Text = "Hour"
+	p.Y.Min = 0
+	p.Y.Label.Text = "Count"
+	p.Legend.Top = true
+	p.Legend.Left = true
+
+	p.Add(plotter.NewGrid())
 
 	for i, c := range publicCounters {
 		ds, err := cl.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionHour)
@@ -21,14 +32,10 @@ func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
 			return nil, err
 		}
 
-		ts := chart.TimeSeries{
-			Name: c.name(),
-			Style: chart.Style{
-				StrokeDashArray: strokeDashArray(i),
-			},
-		}
-
-		var any bool
+		var (
+			data plotter.XYs
+			any  bool
+		)
 		for _, d := range ds {
 			t, err := time.ParseInLocation("2006-01-02 15:04:05", d.Time, time.Local)
 			if err != nil {
@@ -38,82 +45,80 @@ func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
 			if d.Count > 0 {
 				any = true
 			}
-			if d.Count > max {
-				max = d.Count
-			}
 
-			ts.XValues = append(ts.XValues, t)
-			ts.YValues = append(ts.YValues, float64(d.Count))
+			var xy struct {
+				X, Y float64
+			}
+			xy.X = float64(t.Hour())
+			xy.Y = float64(d.Count)
+
+			data = append(data, xy)
 		}
 
 		if !any {
 			continue // no data for this period, do not include
 		}
 
-		series = append(series, ts)
+		ln, _, err := plotter.NewLinePoints(data)
+		if err != nil {
+			return nil, err
+		}
+
+		ln.Color = lineColor(i)
+		ln.Dashes = strokeDashArray(i)
+
+		p.Add(ln)                  // , pts)
+		p.Legend.Add(c.name(), ln) // , pts)
 	}
 
-	graph := chart.Chart{
-		Title:      "Hourly counts for " + day.Format("Mon Jan 2"),
-		TitleStyle: chart.StyleShow(),
-
-		Background: chart.Style{
-			// get the chart title outside the chart
-			Padding: chart.Box{
-				Top:   50,
-				Right: 10,
-				// get legend outside the chart
-				Left:   100,
-				Bottom: 10,
-			},
-		},
-
-		XAxis: chart.XAxis{
-			Name:           "Hour",
-			NameStyle:      chart.StyleShow(),
-			Style:          chart.StyleShow(),
-			ValueFormatter: timeFormatter("3 PM"),
-		},
-		YAxis: chart.YAxis{
-			Name:      "Count",
-			NameStyle: chart.StyleShow(),
-			Style:     chart.StyleShow(),
-			ValueFormatter: func(v interface{}) string {
-				// convert floats to whole numbers
-				return fmt.Sprintf("%d", int(v.(float64)))
-			},
-			// specify the range so the min is 0
-			Range: &chart.ContinuousRange{Max: float64(max)},
-		},
-		Series: series,
+	wt, err := p.WriterTo(28*vg.Centimeter, 10*vg.Centimeter, "png")
+	if err != nil {
+		return nil, err
 	}
-
-	graph.Elements = []chart.Renderable{chart.LegendLeft(&graph)}
 
 	var b bytes.Buffer
-	graph.Render(chart.PNG, &b)
+	if _, err := wt.WriteTo(&b); err != nil {
+		return nil, err
+	}
 
 	return b.Bytes(), nil
 }
 
-func strokeDashArray(index int) []float64 {
+var colors = []color.Color{
+	color.RGBA{R: 0, G: 116, B: 217, A: 255}, // blue
+	color.RGBA{R: 0, G: 217, B: 210, A: 255}, // cyan
+	color.RGBA{R: 0, G: 217, B: 101, A: 255}, // green
+	color.RGBA{R: 217, G: 0, B: 116, A: 255}, // red
+	color.RGBA{R: 217, G: 101, B: 0, A: 255}, // orange
+}
+
+func lineColor(index int) color.Color {
+	return colors[index%len(colors)]
+}
+
+func strokeDashArray(index int) []vg.Length {
 	if index == 0 {
 		return nil
 	}
-	return []float64{float64(index * 3), float64(index * 2)}
+	return []vg.Length{vg.Length(index * 3), vg.Length(index * 2)}
 }
 
-func timeFormatter(f string) chart.ValueFormatter {
-	return func(v interface{}) string {
-		if typed, isTyped := v.(time.Time); isTyped {
-			return typed.Format(f)
+type hourTicker time.Time
+
+func (h hourTicker) Ticks(min, max float64) []plot.Tick {
+	var ts []plot.Tick
+
+	for i := 0; i < 24; i++ {
+		t := plot.Tick{
+			Value: float64(i),
 		}
-		if typed, isTyped := v.(int64); isTyped {
-			return time.Unix(0, typed).Format(f)
+		if i%2 == 0 {
+			var tt time.Time
+			tt = tt.Add(time.Duration(i) * time.Hour)
+			t.Label = tt.Format("3 PM")
 		}
-		if typed, isTyped := v.(float64); isTyped {
-			return time.Unix(0, int64(typed)).Format(f)
-		}
-		return ""
+		ts = append(ts, t)
 	}
+
+	return ts
 }
