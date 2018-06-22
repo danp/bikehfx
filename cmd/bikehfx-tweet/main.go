@@ -71,7 +71,7 @@ var (
 	// publicCounters are included in both daily total and top-N list for the day
 	// as well as the hourly graph.
 	publicCounters = []publicCounter{
-		{n: "Agricola SB", ecoID: "100033965"},
+		{n: "South Park SB", ecoID: "100033965"},
 		{n: "Uni Rowe", ecoID: "100033028"},
 		{n: "Uni Arts", ecoID: "100036476"},
 	}
@@ -79,7 +79,7 @@ var (
 	// nonPublicCounters are only included in the daily total and top-N list.
 	// We can't fetch hourly data for them so they're not in the graph.
 	nonPublicCounters = []nonPublicCounter{
-		{n: "South Park SB", orgID: "4638", directionIDs: []string{"101039526", "102039526"}},
+		{n: "Almon EB", orgID: "4638", directionIDs: []string{"101039526", "102039526"}},
 	}
 )
 
