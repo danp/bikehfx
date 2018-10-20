@@ -47,6 +47,7 @@ func (p publicCounter) get(cl *ecocounter.Client, day time.Time) (int, error) {
 type nonPublicCounter struct {
 	n            string
 	orgID        string
+	ecoID        string
 	directionIDs []string
 }
 
@@ -55,7 +56,7 @@ func (n nonPublicCounter) name() string {
 }
 
 func (n nonPublicCounter) get(cl *ecocounter.Client, day time.Time) (int, error) {
-	ds, err := cl.GetNonPublicDatapoints(n.orgID, n.directionIDs, day, day)
+	ds, err := cl.GetNonPublicDatapoints(n.orgID, n.ecoID, n.directionIDs, day, day)
 	if err != nil {
 		return 0, err
 	}
@@ -79,7 +80,7 @@ var (
 	// nonPublicCounters are only included in the daily total and top-N list.
 	// We can't fetch hourly data for them so they're not in the graph.
 	nonPublicCounters = []nonPublicCounter{
-		{n: "Common/Welsford", orgID: "4638", directionIDs: []string{"101039526", "102039526"}},
+		{n: "Common/Welsford", orgID: "4638", ecoID: "100039526", directionIDs: []string{"101039526", "102039526"}},
 	}
 )
 

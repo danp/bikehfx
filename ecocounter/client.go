@@ -75,7 +75,7 @@ func (c Client) GetDatapoints(id string, begin, end time.Time, resolution Resolu
 
 	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetDatapoints: error making request for id %q: %s", id, err)
 	}
 	q := make(url.Values)
 	q.Set("begin", begin.Format(requestDateFormat))
@@ -85,12 +85,12 @@ func (c Client) GetDatapoints(id string, begin, end time.Time, resolution Resolu
 
 	resp, err := c.do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetDatapoints: error requesting data for id %q: %s", id, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status, got %d", resp.StatusCode)
+		return nil, fmt.Errorf("GetDatapoints: bad status for id %q: %d", id, resp.StatusCode)
 	}
 
 	var body []struct {
@@ -100,7 +100,7 @@ func (c Client) GetDatapoints(id string, begin, end time.Time, resolution Resolu
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("decoding response body: %s", err)
+		return nil, fmt.Errorf("GetDatapoints: decoding response body for id %q: %s", id, err)
 	}
 
 	ds := make([]Datapoint, 0)
@@ -113,7 +113,7 @@ func (c Client) GetDatapoints(id string, begin, end time.Time, resolution Resolu
 
 		t, err := time.Parse(responseDateFormat, b.Date)
 		if err != nil {
-			return nil, fmt.Errorf("parsing datapoint date %q: %s", b.Date, err)
+			return nil, fmt.Errorf("GetDatapoints: parsing datapoint date %q for id %q: %s", id, b.Date, err)
 		}
 
 		d := Datapoint{Time: t.Format(responseDateFormat), Count: *b.Comptage}
@@ -123,11 +123,12 @@ func (c Client) GetDatapoints(id string, begin, end time.Time, resolution Resolu
 	return ds, nil
 }
 
-// GetNonPublicDatapoints gets daily datapoints for the given orgID (idOrganisme in request parameters)
+// GetNonPublicDatapoints gets daily datapoints for the given orgID (idOrganisme in request parameters),
+// counterID (idPdc in request paramaters), and
 // and directionIDs (pratiques in request parameters) between begin and end.
 //
 // This can be used for counters which do not have the "Public Web Page" option enabled.
-func (c Client) GetNonPublicDatapoints(orgID string, directionIDs []string, begin, end time.Time) ([]Datapoint, error) {
+func (c Client) GetNonPublicDatapoints(orgID, counterID string, directionIDs []string, begin, end time.Time) ([]Datapoint, error) {
 	u, err := c.baseURL()
 	if err != nil {
 		return nil, err
@@ -136,6 +137,7 @@ func (c Client) GetNonPublicDatapoints(orgID string, directionIDs []string, begi
 
 	v := make(url.Values)
 	v.Set("idOrganisme", orgID)
+	v.Set("idPdc", counterID)
 	v.Set("debut", begin.Format(nonPublicRequestDateFormat))
 	v.Set("fin", end.Format(nonPublicRequestDateFormat))
 	v.Set("interval", "3")
@@ -143,25 +145,25 @@ func (c Client) GetNonPublicDatapoints(orgID string, directionIDs []string, begi
 
 	req, err := http.NewRequest("POST", u.String(), strings.NewReader(v.Encode()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetNonPublicDatapoints: error making request for orgID %q and directionIDs %+v: %s", orgID, directionIDs, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetNonPublicDatapoints: error requesting data for orgID %q and directionIDs %+v: %s", orgID, directionIDs, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status, got %d", resp.StatusCode)
+		return nil, fmt.Errorf("GetNonPublicDatapoints: bad status for orgID %q and directionIDs %+v: %d", orgID, directionIDs, resp.StatusCode)
 	}
 
 	// ugh
 	// [["08\/28\/2017","245.0"],["08\/29\/2017","255.0"],255.0]
 	var body []interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("decoding response body: %s", err)
+		return nil, fmt.Errorf("GetNonPublicDatapoints: decoding response body for orgID %q and directionIDs %+v: %s", orgID, directionIDs, err)
 	}
 
 	var ds []Datapoint
@@ -174,13 +176,13 @@ func (c Client) GetNonPublicDatapoints(orgID string, directionIDs []string, begi
 		dt := y[0].(string)
 		d, err := time.Parse("01/02/2006", dt)
 		if err != nil {
-			return nil, fmt.Errorf("parsing datapoint date %q: %s", dt, err)
+			return nil, fmt.Errorf("GetNonPublicDatapoints: parsing datapoint date %q for orgID %q and directionIDs %+v: %s", dt, orgID, directionIDs, err)
 		}
 
 		ct := y[1].(string)
 		n, err := strconv.ParseFloat(ct, 32)
 		if err != nil {
-			return nil, fmt.Errorf("parsing datapoint count %q: %s", ct, err)
+			return nil, fmt.Errorf("GetNonPublicDatapoints: parsing datapoint count %q for date %q and orgID %q and directionIDs %+v: %s", ct, dt, orgID, directionIDs, err)
 		}
 
 		dp := Datapoint{

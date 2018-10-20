@@ -138,6 +138,7 @@ func TestGetNonPublicDatapoints(t *testing.T) {
 			"debut":       []string{begin.Format(nonPublicRequestDateFormat)},
 			"fin":         []string{end.Format(nonPublicRequestDateFormat)},
 			"idOrganisme": []string{"org"},
+			"idPdc":       []string{"counter"},
 			"pratiques":   []string{"dir1;dir2"},
 			"interval":    []string{"3"},
 		}
@@ -153,7 +154,7 @@ func TestGetNonPublicDatapoints(t *testing.T) {
 		BaseURL: ts.URL,
 	}
 
-	ds, err := cl.GetNonPublicDatapoints("org", []string{"dir1", "dir2"}, begin, end)
+	ds, err := cl.GetNonPublicDatapoints("org", "counter", []string{"dir1", "dir2"}, begin, end)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func ExampleClient_GetNonPublicDatapoints() {
 	// Fetch datapoints for the South Park Street counter, listed at
 	// http://www.eco-public.com/ParcPublic/?id=4638 but doesn't have its
 	// own page.
-	ds, err := cl.GetNonPublicDatapoints("4638", []string{"101039526", "102039526"}, begin, end)
+	ds, err := cl.GetNonPublicDatapoints("4638", "100039526", []string{"101039526", "102039526"}, begin, end)
 	if err != nil {
 		panic(err)
 	}
