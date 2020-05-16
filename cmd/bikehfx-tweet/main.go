@@ -85,7 +85,7 @@ var (
 )
 
 type Config struct {
-	TwitterConsumerKey    string `env:"TWITTER_CONSUMER_KEY,requried"`
+	TwitterConsumerKey    string `env:"TWITTER_CONSUMER_KEY,required"`
 	TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
 	TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
 	TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
@@ -166,7 +166,7 @@ func main() {
 
 	if cfg.TestMode {
 		log.Println("test mode, writing graph.png")
-		if err := ioutil.WriteFile("graph.png", gb, 0644); err != nil {
+		if err := ioutil.WriteFile("graph.png", gb, 0600); err != nil {
 			log.Fatal(err)
 		}
 

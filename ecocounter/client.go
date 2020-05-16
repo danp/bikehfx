@@ -124,7 +124,7 @@ func (c Client) GetDatapoints(id string, begin, end time.Time, resolution Resolu
 }
 
 // GetNonPublicDatapoints gets daily datapoints for the given orgID (idOrganisme in request parameters),
-// counterID (idPdc in request paramaters), and
+// counterID (idPdc in request parameters), and
 // and directionIDs (pratiques in request parameters) between begin and end.
 //
 // This can be used for counters which do not have the "Public Web Page" option enabled.
