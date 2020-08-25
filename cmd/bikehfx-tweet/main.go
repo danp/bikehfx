@@ -127,6 +127,9 @@ func main() {
 	counts := make([]ccount, 0, len(counters))
 
 	var ecl ecocounter.Client
+	// As of Aug 25, 2020, https://www.eco-public.com is not verifying.
+	// Using a browser loads things via http, not https.
+	ecl.BaseURL = "http://www.eco-public.com"
 
 	var tot int
 	for _, c := range counters {
