@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/danp/bikehfx/ecocounter"
@@ -32,6 +33,13 @@ func main() {
 		TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
 		TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
 		TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
+
+		EcoVisio struct {
+			Username string `env:"ECO_VISIO_USERNAME"`
+			Password string `env:"ECO_VISIO_PASSWORD"`
+			UserID   string `env:"ECO_VISIO_USER_ID"`
+			DomainID string `env:"ECO_VISIO_DOMAIN_ID"`
+		}
 
 		Day string `env:"DAY"`
 
@@ -60,6 +68,15 @@ func main() {
 		{name: "Uni Arts", querier: clientPublicQuerier{&ecl, "100036476"}},
 	}
 
+	if cfg.EcoVisio.Username != "" && cfg.EcoVisio.Password != "" && cfg.EcoVisio.UserID != "" && cfg.EcoVisio.DomainID != "" {
+		eva := newEcoVisioAuth(cfg.EcoVisio.Username, cfg.EcoVisio.Password, cfg.EcoVisio.UserID, cfg.EcoVisio.DomainID)
+
+		counters = append(counters,
+			counter{name: "South Park", querier: ecoVisioQuerier{eva, "100054257"}},
+			counter{name: "Hollis", querier: ecoVisioQuerier{eva, "101059339"}},
+		)
+	}
+
 	// load daily data for all counters
 	type ccount struct {
 		name  string
@@ -71,7 +88,7 @@ func main() {
 	for _, c := range counters {
 		cc, err := c.querier.query(day, ecocounter.ResolutionDay)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("querying %s: %s", c.name, err)
 		}
 		if len(cc) != 1 {
 			continue
@@ -179,4 +196,185 @@ type clientPublicQuerier struct {
 
 func (q clientPublicQuerier) query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error) {
 	return q.cl.GetDatapoints(q.id, day, day, resolution)
+}
+
+type ecoVisioAuth struct {
+	username, password, userID, domainID string
+
+	// should support expiry, etc
+	tokenCh chan string
+}
+
+func newEcoVisioAuth(username, password, userID, domainID string) *ecoVisioAuth {
+	ch := make(chan string, 1)
+	ch <- ""
+	return &ecoVisioAuth{
+		username: username,
+		password: password,
+		userID:   userID,
+		domainID: domainID,
+		tokenCh:  ch,
+	}
+}
+
+func (a *ecoVisioAuth) token() (string, error) {
+	tok := <-a.tokenCh
+	if tok == "" {
+		t, err := a.auth()
+		if err != nil {
+			a.tokenCh <- ""
+			return "", err
+		}
+		tok = t
+	}
+	a.tokenCh <- tok
+	return tok, nil
+}
+
+func (a *ecoVisioAuth) auth() (string, error) {
+	reqs := struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}{
+		Login:    a.username,
+		Password: a.password,
+	}
+	reqb, err := json.Marshal(reqs)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", "https://www.eco-visio.net/api/aladdin/1.0.0/connect", bytes.NewReader(reqb))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:80.0) Gecko/20100101 Firefox/80.0")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Origin", "https://www.eco-visio.net")
+	req.Header.Set("DNT", "1")
+	req.Header.Set("Referer", "https://www.eco-visio.net/v5/")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading eco visio auth response: %w", err)
+	}
+
+	if resp.StatusCode/100 != 2 {
+		if len(b) > 100 {
+			b = b[:100]
+		}
+		return "", fmt.Errorf("bad status %d for eco visio auth: %s", resp.StatusCode, b)
+	}
+
+	var resps struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(b, &resps); err != nil {
+		return "", fmt.Errorf("decoding eco visio auth response: %w", err)
+	}
+
+	return resps.AccessToken, nil
+}
+
+type ecoVisioQuerier struct {
+	auth *ecoVisioAuth
+	id   string
+}
+
+func (q ecoVisioQuerier) query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error) {
+	var ress string
+	switch resolution {
+	case ecocounter.ResolutionDay:
+		ress = "day"
+	case ecocounter.ResolutionHour:
+		ress = "1hour"
+	}
+	if ress == "" {
+		return nil, nil
+	}
+
+	begin, end := day.Format("2006-01-02"), day.AddDate(0, 0, 1).Format("2006-01-02")
+	bu := "https://www.eco-visio.net/api/aladdin/1.0.0/domain/" + q.auth.domainID + "/user/" + q.auth.userID + "/query/from/" + begin + "%2000:00/to/" + end + "%2000:00/by/" + ress
+
+	var reqs struct {
+		Flows []int `json:"flows"`
+	}
+	idi, err := strconv.Atoi(q.id)
+	if err != nil {
+		return nil, err
+	}
+	reqs.Flows = []int{idi}
+	reqb, err := json.Marshal(reqs)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", bu, bytes.NewReader(reqb))
+	if err != nil {
+		return nil, err
+	}
+
+	tok, err := q.auth.token()
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:80.0) Gecko/20100101 Firefox/80.0")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Origin", "https://www.eco-visio.net")
+	req.Header.Set("DNT", "1")
+	req.Header.Set("Referer", "https://www.eco-visio.net/v5/")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading query response for %s: %w", q.id, err)
+	}
+
+	if resp.StatusCode/100 != 2 {
+		if len(b) > 100 {
+			b = b[:100]
+		}
+		return nil, fmt.Errorf("bad status %d querying %s: %s", resp.StatusCode, q.id, b)
+	}
+
+	var resps map[string]struct {
+		Countdata [][]interface{}
+	}
+	if err := json.Unmarshal(b, &resps); err != nil {
+		return nil, fmt.Errorf("unmarshaling query response for %s: %w", q.id, err)
+	}
+
+	ce, ok := resps[q.id]
+	if !ok {
+		return nil, nil
+	}
+
+	ds := make([]ecocounter.Datapoint, 0, len(ce.Countdata))
+	for _, rp := range ce.Countdata {
+		dp := ecocounter.Datapoint{
+			Time:  rp[0].(string),
+			Count: int(rp[1].(float64)),
+		}
+		ds = append(ds, dp)
+	}
+
+	return ds, nil
 }
