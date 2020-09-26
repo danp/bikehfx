@@ -10,10 +10,8 @@ require (
 	github.com/dghubble/sling v1.1.0 // indirect
 	github.com/google/go-querystring v0.0.0-20170111101155-53e6ce116135 // indirect
 	github.com/joeshaw/envdecode v0.0.0-20180312135643-c9e015854467
-	github.com/jung-kurt/gofpdf v1.16.2 // indirect
 	github.com/stretchr/testify v1.5.1 // indirect
 	golang.org/x/exp v0.0.0-20200513190911-00229845015e // indirect
-	golang.org/x/image v0.0.0-20200430140353-33d19683fad8 // indirect
 	gonum.org/v1/netlib v0.0.0-20200317120129-c5a04cffd98a // indirect
-	gonum.org/v1/plot v0.7.0
+	gonum.org/v1/plot v0.8.0
 )
