@@ -11,7 +11,7 @@ import (
 	"gonum.org/v1/plot/vg"
 )
 
-func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
+func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 	p, err := plot.New()
 	if err != nil {
 		return nil, err
@@ -26,8 +26,8 @@ func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
 
 	p.Add(plotter.NewGrid())
 
-	for i, c := range publicCounters {
-		ds, err := cl.GetDatapoints(c.ecoID, day, day, ecocounter.ResolutionHour)
+	for i, c := range counters {
+		ds, err := c.querier.query(day, ecocounter.ResolutionHour)
 		if err != nil {
 			return nil, err
 		}
@@ -67,8 +67,8 @@ func makeHourlyGraph(cl *ecocounter.Client, day time.Time) ([]byte, error) {
 		ln.Color = lineColor(i)
 		ln.Dashes = strokeDashArray(i)
 
-		p.Add(ln)                  // , pts)
-		p.Legend.Add(c.name(), ln) // , pts)
+		p.Add(ln)
+		p.Legend.Add(c.name, ln)
 	}
 
 	wt, err := p.WriterTo(28*vg.Centimeter, 10*vg.Centimeter, "png")

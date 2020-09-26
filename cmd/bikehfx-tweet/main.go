@@ -17,85 +17,26 @@ import (
 	"github.com/joeshaw/envdecode"
 )
 
-type counter interface {
-	name() string
-	get(cl *ecocounter.Client, day time.Time) (int, error)
+type countQuerier interface {
+	query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error)
 }
 
-type publicCounter struct {
-	n     string
-	ecoID string
-}
-
-func (p publicCounter) name() string {
-	return p.n
-}
-
-func (p publicCounter) get(cl *ecocounter.Client, day time.Time) (int, error) {
-	ds, err := cl.GetDatapoints(p.ecoID, day, day, ecocounter.ResolutionDay)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(ds) != 1 {
-		return 0, nil
-	}
-
-	return ds[0].Count, nil
-}
-
-type nonPublicCounter struct {
-	n            string
-	orgID        string
-	ecoID        string
-	directionIDs []string
-}
-
-func (n nonPublicCounter) name() string {
-	return n.n
-}
-
-func (n nonPublicCounter) get(cl *ecocounter.Client, day time.Time) (int, error) {
-	ds, err := cl.GetNonPublicDatapoints(n.orgID, n.ecoID, n.directionIDs, day, day)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(ds) != 1 {
-		return 0, nil
-	}
-
-	return ds[0].Count, nil
-}
-
-var (
-	// publicCounters are included in both daily total and top-N list for the day
-	// as well as the hourly graph.
-	publicCounters = []publicCounter{
-		{n: "Uni Rowe", ecoID: "100033028"},
-		{n: "Uni Arts", ecoID: "100036476"},
-	}
-
-	// nonPublicCounters are only included in the daily total and top-N list.
-	// We can't fetch hourly data for them so they're not in the graph.
-	nonPublicCounters = []nonPublicCounter{}
-)
-
-type Config struct {
-	TwitterConsumerKey    string `env:"TWITTER_CONSUMER_KEY,required"`
-	TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
-	TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
-	TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
-
-	Day string `env:"DAY"`
-
-	TestMode bool `env:"TEST_MODE"`
+type counter struct {
+	name    string
+	querier countQuerier
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	var cfg struct {
+		TwitterConsumerKey    string `env:"TWITTER_CONSUMER_KEY,required"`
+		TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
+		TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
+		TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
 
-	var cfg Config
+		Day string `env:"DAY"`
+
+		TestMode bool `env:"TEST_MODE"`
+	}
 	if err := envdecode.Decode(&cfg); err != nil {
 		log.Fatal(err)
 	}
@@ -109,33 +50,34 @@ func main() {
 		day = d
 	}
 
-	var counters []counter
-	for _, c := range publicCounters {
-		counters = append(counters, c)
-	}
-	for _, c := range nonPublicCounters {
-		counters = append(counters, c)
+	var ecl ecocounter.Client
+	// As of Aug 25, 2020, https://www.eco-public.com is not verifying.
+	// Using a browser loads things via http, not https.
+	ecl.BaseURL = "http://www.eco-public.com"
+
+	counters := []counter{
+		{name: "Uni Rowe", querier: clientPublicQuerier{&ecl, "100033028"}},
+		{name: "Uni Arts", querier: clientPublicQuerier{&ecl, "100036476"}},
 	}
 
+	// load daily data for all counters
 	type ccount struct {
 		name  string
 		count int
 	}
 	counts := make([]ccount, 0, len(counters))
 
-	var ecl ecocounter.Client
-	// As of Aug 25, 2020, https://www.eco-public.com is not verifying.
-	// Using a browser loads things via http, not https.
-	ecl.BaseURL = "http://www.eco-public.com"
-
 	var tot int
 	for _, c := range counters {
-		count, err := c.get(&ecl, day)
+		cc, err := c.querier.query(day, ecocounter.ResolutionDay)
 		if err != nil {
 			log.Fatal(err)
 		}
-		counts = append(counts, ccount{name: c.name(), count: count})
-		tot += count
+		if len(cc) != 1 {
+			continue
+		}
+		counts = append(counts, ccount{name: c.name, count: cc[0].Count})
+		tot += cc[0].Count
 	}
 	if tot == 0 {
 		log.Printf("no data for any counters on %s, doing nothing", day)
@@ -147,10 +89,6 @@ func main() {
 	yf := day.Format("Mon Jan 2")
 	stxt := fmt.Sprintf("%d #bikehfx trips counted on %s\n", tot, yf)
 	for _, c := range counts {
-		if c.count == 0 {
-			continue
-		}
-
 		ctxt := fmt.Sprintf("\n%d %s", c.count, c.name)
 		if len(stxt)+len(ctxt) > 135 {
 			break
@@ -159,7 +97,8 @@ func main() {
 	}
 	log.Printf("at=tweet stxt=%q len=%d", stxt, len(stxt))
 
-	gb, err := makeHourlyGraph(&ecl, day)
+	// graph counters which support hourly resolution
+	gb, err := makeHourlyGraph(day, counters)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -228,4 +167,13 @@ func uploadMedia(cl *http.Client, m []byte) (int64, error) {
 
 	err = json.NewDecoder(resp.Body).Decode(&mresp)
 	return mresp.MediaID, err
+}
+
+type clientPublicQuerier struct {
+	cl *ecocounter.Client
+	id string
+}
+
+func (q clientPublicQuerier) query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error) {
+	return q.cl.GetDatapoints(q.id, day, day, resolution)
 }
