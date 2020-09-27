@@ -76,6 +76,9 @@ func main() {
 		if len(cc) != 1 {
 			continue
 		}
+		if cc[0].Count == 0 {
+			continue
+		}
 		counts = append(counts, ccount{name: c.name, count: cc[0].Count})
 		tot += cc[0].Count
 	}
