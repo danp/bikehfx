@@ -14,5 +14,5 @@ require (
 	github.com/stretchr/testify v1.5.1 // indirect
 	golang.org/x/exp v0.0.0-20200513190911-00229845015e // indirect
 	gonum.org/v1/netlib v0.0.0-20200317120129-c5a04cffd98a // indirect
-	gonum.org/v1/plot v0.8.0
+	gonum.org/v1/plot v0.8.1
 )
