@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	_ "embed"
 	"image"
 	"image/color"
 	"image/draw"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	"github.com/danp/bikehfx/ecocounter"
-	"github.com/golang/freetype/truetype"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/plotutil"
@@ -18,16 +16,9 @@ import (
 )
 
 func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
-	//go:embed Arial.ttf
-	var arial []byte
-	fontTTF, err := truetype.Parse(arial)
-	if err != nil {
+	if err := initGraph(); err != nil {
 		return nil, err
 	}
-	const fontName = "Arial"
-	vg.AddFont(fontName, fontTTF)
-	plot.DefaultFont = fontName
-	plotter.DefaultFont = fontName
 	plotutil.DefaultColors = plotutil.DarkColors
 
 	p, err := plot.New()
@@ -113,7 +104,7 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 	const padding = 20
 	outRect := image.Rect(bnds.Min.X-padding, bnds.Min.Y-padding, bnds.Max.X+padding, bnds.Max.Y+padding)
 	out := image.NewRGBA(outRect)
-	draw.Draw(out, out.Bounds(), &image.Uniform{color.RGBA{255, 255, 255, 255}}, image.ZP, draw.Src)
+	draw.Draw(out, out.Bounds(), &image.Uniform{color.RGBA{255, 255, 255, 255}}, image.Point{}, draw.Src)
 	draw.Draw(out, img.Bounds(), img, outRect.Min.Add(image.Pt(padding, padding)), draw.Over)
 
 	b.Reset()
