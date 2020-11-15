@@ -6,6 +6,8 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"math"
+	"sort"
 	"time"
 
 	"github.com/danp/bikehfx/ecocounter"
@@ -36,7 +38,14 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 	grid.Horizontal.Color = color.Gray{175}
 	p.Add(grid)
 
-	for i, c := range counters {
+	type counterXYs struct {
+		c   *counter
+		xys plotter.XYs
+	}
+	var cxys []counterXYs
+
+	for _, c := range counters {
+		c := c
 		ds, err := c.querier.query(day, ecocounter.ResolutionHour)
 		if err != nil {
 			return nil, err
@@ -72,17 +81,44 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 			continue // no data for this day, do not include
 		}
 
-		ln, err := plotter.NewLine(data)
+		sort.Slice(data, func(i, j int) bool { return data[i].X < data[j].X })
+
+		cxys = append(cxys, counterXYs{
+			c:   &c,
+			xys: data,
+		})
+	}
+
+	earliestHour := math.MaxFloat64
+	for _, d := range cxys {
+		for _, xy := range d.xys {
+			if xy.X < earliestHour {
+				earliestHour = xy.X
+			}
+		}
+	}
+	for ci, d := range cxys {
+		for i := int(earliestHour); i < int(d.xys[0].X); i++ {
+			var xy struct {
+				X, Y float64
+			}
+			xy.X = float64(i)
+			xy.Y = float64(0)
+			d.xys = append(d.xys, xy)
+		}
+		sort.Slice(d.xys, func(i, j int) bool { return d.xys[i].X < d.xys[j].X })
+
+		ln, err := plotter.NewLine(d.xys)
 		if err != nil {
 			return nil, err
 		}
 
-		ln.LineStyle.Color = plotutil.Color(i)
-		ln.LineStyle.Dashes = plotutil.Dashes(i)
+		ln.LineStyle.Color = plotutil.Color(ci)
+		ln.LineStyle.Dashes = plotutil.Dashes(ci)
 		ln.LineStyle.Width = vg.Points(2)
 
 		p.Add(ln)
-		p.Legend.Add(c.name, ln)
+		p.Legend.Add(d.c.name, ln)
 	}
 
 	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
