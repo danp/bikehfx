@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/png"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/danp/bikehfx/ecocounter"
@@ -17,15 +19,23 @@ import (
 	"gonum.org/v1/plot/vg"
 )
 
-func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
+type counterXYs struct {
+	c   *counter
+	xys plotter.XYs
+}
+
+// makeHourlyGraph returns a png graph of hourly data from counters that
+// can pull hourly data and a string of alt text which attempts to
+// interpret the data in the graph.
+func makeHourlyGraph(day time.Time, counters []counter) ([]byte, string, error) {
 	if err := initGraph(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	plotutil.DefaultColors = plotutil.DarkColors
 
 	p, err := plot.New()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	p.Title.Text = "Counts for " + day.Format("Mon Jan 2") + " by hour starting"
 	p.X.Tick.Marker = hourTicker(day)
@@ -38,17 +48,13 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 	grid.Horizontal.Color = color.Gray{175}
 	p.Add(grid)
 
-	type counterXYs struct {
-		c   *counter
-		xys plotter.XYs
-	}
 	var cxys []counterXYs
 
 	for _, c := range counters {
 		c := c
 		ds, err := c.querier.query(day, ecocounter.ResolutionHour)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		var (
@@ -58,7 +64,7 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 		for _, d := range ds {
 			t, err := time.ParseInLocation("2006-01-02 15:04:05", d.Time, time.Local)
 			if err != nil {
-				return nil, err
+				return nil, "", err
 			}
 
 			// Skip adding 0s until the first hour with a count >0.
@@ -68,11 +74,10 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 			}
 			any = true
 
-			var xy struct {
-				X, Y float64
+			xy := plotter.XY{
+				X: float64(t.Hour()),
+				Y: float64(d.Count),
 			}
-			xy.X = float64(t.Hour())
-			xy.Y = float64(d.Count)
 
 			data = append(data, xy)
 		}
@@ -99,18 +104,17 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 	}
 	for ci, d := range cxys {
 		for i := int(earliestHour); i < int(d.xys[0].X); i++ {
-			var xy struct {
-				X, Y float64
+			xy := plotter.XY{
+				X: float64(i),
+				Y: float64(0),
 			}
-			xy.X = float64(i)
-			xy.Y = float64(0)
 			d.xys = append(d.xys, xy)
 		}
 		sort.Slice(d.xys, func(i, j int) bool { return d.xys[i].X < d.xys[j].X })
 
 		ln, err := plotter.NewLine(d.xys)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		ln.LineStyle.Color = plotutil.Color(ci)
@@ -123,17 +127,17 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 
 	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	var b bytes.Buffer
 	if _, err := wt.WriteTo(&b); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	img, _, err := image.Decode(&b)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	bnds := img.Bounds()
@@ -145,10 +149,10 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, error) {
 
 	b.Reset()
 	if err := png.Encode(&b, out); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return b.Bytes(), nil
+	return b.Bytes(), altText(cxys), nil
 }
 
 type hourTicker time.Time
@@ -169,4 +173,71 @@ func (h hourTicker) Ticks(min, max float64) []plot.Tick {
 	}
 
 	return ts
+}
+
+func altText(data []counterXYs) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	type highestHour struct {
+		name  string
+		hour  int
+		count int
+	}
+	hhs := []highestHour{{}}
+
+	var counterNames []string
+	for _, c := range data {
+		counterNames = append(counterNames, c.c.name)
+		for _, h := range c.xys {
+			hh := highestHour{
+				name:  c.c.name,
+				hour:  int(h.X),
+				count: int(h.Y),
+			}
+
+			if hh.count > hhs[0].count {
+				hhs = []highestHour{hh}
+			} else if hh.count == hhs[0].count {
+				hhs = append(hhs, hh)
+			}
+		}
+	}
+	sort.Strings(counterNames)
+
+	if hhs[0].count == 0 {
+		return ""
+	}
+
+	out := fmt.Sprintf("Line chart of bike trips by hour from the " + humanList(counterNames) + " counters.")
+
+	if len(hhs) == 1 {
+		hh := hhs[0]
+		hf := (time.Time{}).Add(time.Duration(hh.hour) * time.Hour).Format("3 PM")
+		out += fmt.Sprintf(" The highest hourly count was %d during the %s hour from the %s counter.", hh.count, hf, hh.name)
+	} else if len(hhs) > 1 {
+		hcn := make([]string, 0, len(hhs))
+		for _, hh := range hhs {
+			hcn = append(hcn, hh.name)
+		}
+		sort.Strings(hcn)
+		out += fmt.Sprintf(" The highest hourly count was %d from the %s counters.", hhs[0].count, humanList(hcn))
+	}
+	return out
+}
+
+// adapted from https://github.com/dustin/go-humanize/blob/master/english/words.go
+func humanList(words []string) string {
+	const joiner = " and "
+	switch len(words) {
+	case 0:
+		return ""
+	case 1:
+		return words[0]
+	case 2:
+		return strings.Join(words, joiner)
+	default:
+		return strings.Join(words[:len(words)-1], ", ") + "," + joiner + words[len(words)-1]
+	}
 }

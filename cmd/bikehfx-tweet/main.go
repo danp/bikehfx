@@ -115,13 +115,14 @@ func main() {
 		}
 		stxt += ctxt
 	}
-	log.Printf("at=tweet stxt=%q len=%d", stxt, len(stxt))
 
 	// graph counters which support hourly resolution
-	gb, err := makeHourlyGraph(day, counters)
+	gb, atxt, err := makeHourlyGraph(day, counters)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	log.Printf("at=tweet stxt=%q slen=%d atxt=%q", stxt, len(stxt), atxt)
 
 	if cfg.TestMode {
 		log.Println("test mode, writing graph.png")
@@ -137,7 +138,7 @@ func main() {
 	oaToken := oauth1.NewToken(cfg.TwitterAppToken, cfg.TwitterAppSecret)
 	cl := oaConfig.Client(oauth1.NoContext, oaToken)
 
-	mid, err := uploadMedia(cl, gb)
+	mid, err := uploadMedia(cl, gb, atxt)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -150,7 +151,7 @@ func main() {
 	fmt.Println("https://twitter.com/" + tw.User.ScreenName + "/status/" + tw.IDStr)
 }
 
-func uploadMedia(cl *http.Client, m []byte) (int64, error) {
+func uploadMedia(cl *http.Client, m []byte, altText string) (int64, error) {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
@@ -185,8 +186,45 @@ func uploadMedia(cl *http.Client, m []byte) (int64, error) {
 		MediaID int64 `json:"media_id"`
 	}
 
-	err = json.NewDecoder(resp.Body).Decode(&mresp)
-	return mresp.MediaID, err
+	if err := json.NewDecoder(resp.Body).Decode(&mresp); err != nil {
+		return 0, err
+	}
+
+	if altText == "" {
+		return mresp.MediaID, nil
+	}
+
+	var reqb struct {
+		MediaID string `json:"media_id"`
+		AltText struct {
+			Text string `json:"text"`
+		} `json:"alt_text"`
+	}
+	reqb.MediaID = strconv.FormatInt(mresp.MediaID, 10)
+	reqb.AltText.Text = altText
+
+	rb, err := json.Marshal(reqb)
+	if err != nil {
+		return 0, err
+	}
+
+	req, err = http.NewRequest("POST", "https://upload.twitter.com/1.1/media/metadata/create.json", bytes.NewReader(rb))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
+
+	resp, err = cl.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode/100 != 2 {
+		return 0, fmt.Errorf("got status %d", resp.StatusCode)
+	}
+
+	return mresp.MediaID, nil
 }
 
 type clientPublicQuerier struct {
