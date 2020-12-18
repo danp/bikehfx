@@ -104,7 +104,12 @@ func main() {
 		return
 	}
 
-	sort.Slice(counts, func(i, j int) bool { return counts[j].count < counts[i].count })
+	sort.Slice(counts, func(i, j int) bool {
+		if counts[i].count == counts[j].count {
+			return counts[i].name < counts[j].name
+		}
+		return counts[i].count > counts[j].count
+	})
 
 	yf := day.Format("Mon Jan 2")
 	stxt := fmt.Sprintf("%d #bikehfx trips counted on %s\n", tot, yf)
