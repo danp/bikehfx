@@ -72,8 +72,11 @@ func main() {
 		eva := newEcoVisioAuth(cfg.EcoVisio.Username, cfg.EcoVisio.Password, cfg.EcoVisio.UserID, cfg.EcoVisio.DomainID)
 
 		counters = append(counters,
-			counter{name: "South Park", querier: ecoVisioQuerier{eva, "100054257"}},
-			counter{name: "Hollis", querier: ecoVisioQuerier{eva, "101059339"}},
+			// The main South Park id of 100054257 also picks up an extra formula
+			// dealy which messes up the data, so grab the northbound and southbound
+			// flows directly.
+			counter{name: "South Park", querier: ecoVisioQuerier{eva, []string{"101054257", "102054257"}}},
+			counter{name: "Hollis", querier: ecoVisioQuerier{eva, []string{"101059339"}}},
 		)
 	}
 
@@ -329,8 +332,8 @@ func (a *ecoVisioAuth) auth() (string, error) {
 }
 
 type ecoVisioQuerier struct {
-	auth *ecoVisioAuth
-	id   string
+	auth    *ecoVisioAuth
+	flowIDs []string
 }
 
 func (q ecoVisioQuerier) query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error) {
@@ -351,11 +354,13 @@ func (q ecoVisioQuerier) query(day time.Time, resolution ecocounter.Resolution) 
 	var reqs struct {
 		Flows []int `json:"flows"`
 	}
-	idi, err := strconv.Atoi(q.id)
-	if err != nil {
-		return nil, err
+	for _, fid := range q.flowIDs {
+		idi, err := strconv.Atoi(fid)
+		if err != nil {
+			return nil, err
+		}
+		reqs.Flows = append(reqs.Flows, idi)
 	}
-	reqs.Flows = []int{idi}
 	reqb, err := json.Marshal(reqs)
 	if err != nil {
 		return nil, err
@@ -388,36 +393,40 @@ func (q ecoVisioQuerier) query(day time.Time, resolution ecocounter.Resolution) 
 
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading query response for %s: %w", q.id, err)
+		return nil, fmt.Errorf("reading query response for %s: %w", q.flowIDs, err)
 	}
 
 	if resp.StatusCode/100 != 2 {
 		if len(b) > 100 {
 			b = b[:100]
 		}
-		return nil, fmt.Errorf("bad status %d querying %s: %s", resp.StatusCode, q.id, b)
+		return nil, fmt.Errorf("bad status %d querying %s: %s", resp.StatusCode, q.flowIDs, b)
 	}
 
 	var resps map[string]struct {
 		Countdata [][]interface{}
 	}
 	if err := json.Unmarshal(b, &resps); err != nil {
-		return nil, fmt.Errorf("unmarshaling query response for %s: %w", q.id, err)
+		return nil, fmt.Errorf("unmarshaling query response for %s: %w", q.flowIDs, err)
 	}
 
-	ce, ok := resps[q.id]
-	if !ok {
-		return nil, nil
-	}
-
-	ds := make([]ecocounter.Datapoint, 0, len(ce.Countdata))
-	for _, rp := range ce.Countdata {
-		dp := ecocounter.Datapoint{
-			Time:  rp[0].(string),
-			Count: int(rp[1].(float64)),
+	// Sum up all the flows we got, by time period.
+	dps := make(map[string]ecocounter.Datapoint)
+	for _, re := range resps {
+		for _, rd := range re.Countdata {
+			t := rd[0].(string)
+			dp := dps[t]
+			dp.Time = t
+			dp.Count += int(rd[1].(float64))
+			dps[t] = dp
 		}
+	}
+
+	ds := make([]ecocounter.Datapoint, 0, len(dps))
+	for _, dp := range dps {
 		ds = append(ds, dp)
 	}
+	sort.Slice(ds, func(i, j int) bool { return ds[i].Time < ds[j].Time })
 
 	return ds, nil
 }

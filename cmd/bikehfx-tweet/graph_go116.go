@@ -11,9 +11,10 @@ import (
 	"gonum.org/v1/plot/vg"
 )
 
+//go:embed Arial.ttf
+var arial []byte
+
 func initGraph() error {
-	//go:embed Arial.ttf
-	var arial []byte
 	fontTTF, err := truetype.Parse(arial)
 	if err != nil {
 		return err
