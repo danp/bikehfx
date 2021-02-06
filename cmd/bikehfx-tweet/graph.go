@@ -40,12 +40,11 @@ func makeHourlyGraph(day time.Time, counters []counter) ([]byte, string, error) 
 	p.Title.Text = "Counts for " + day.Format("Mon Jan 2") + " by hour starting"
 	origMarker := p.Y.Tick.Marker
 	p.Y.Tick.Marker = plot.TickerFunc(func(min, max float64) []plot.Tick {
-		// Ensure the default ticker doesn't get into using decimals
-		// for labels, such as 2.5.
-		if max < 7 {
-			max = 7
-		}
 		ticks := origMarker.Ticks(min, max)
+		for i := range ticks {
+			// Try and avoid eg 25.00
+			ticks[i].Value = float64(int(ticks[i].Value))
+		}
 		return ticks
 	})
 	p.X.Tick.Marker = hourTicker(day)
