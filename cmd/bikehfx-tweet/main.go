@@ -33,6 +33,7 @@ func main() {
 		TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
 		TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
 		TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
+		InitialTweetInReplyTo int64  `env:"INITIAL_TWEET_IN_REPLY_TO"`
 
 		EcoVisio struct {
 			Username string `env:"ECO_VISIO_USERNAME"`
@@ -41,7 +42,8 @@ func main() {
 			DomainID string `env:"ECO_VISIO_DOMAIN_ID"`
 		}
 
-		Day string `env:"DAY"`
+		Day  string   `env:"DAY"`
+		Days []string `env:"DAYS"`
 
 		TestMode bool `env:"TEST_MODE"`
 	}
@@ -49,13 +51,25 @@ func main() {
 		log.Fatal(err)
 	}
 
-	day := time.Now().Add(-24 * time.Hour)
-	if cfg.Day != "" {
-		d, err := time.Parse("20060102", cfg.Day)
-		if err != nil {
-			log.Fatal(err)
+	var days []time.Time
+	if len(cfg.Days) == 0 {
+		day := time.Now().AddDate(0, 0, -1)
+		if cfg.Day != "" {
+			d, err := time.Parse("20060102", cfg.Day)
+			if err != nil {
+				log.Fatal(err)
+			}
+			day = d
 		}
-		day = d
+		days = append(days, day)
+	} else {
+		for _, cd := range cfg.Days {
+			d, err := time.Parse("20060102", cd)
+			if err != nil {
+				log.Fatal(err)
+			}
+			days = append(days, d)
+		}
 	}
 
 	var ecl ecocounter.Client
@@ -80,83 +94,98 @@ func main() {
 		)
 	}
 
-	// load daily data for all counters
-	type ccount struct {
-		name  string
-		count int
-	}
-	counts := make([]ccount, 0, len(counters))
-
-	var tot int
-	for _, c := range counters {
-		cc, err := c.querier.query(day, ecocounter.ResolutionDay)
-		if err != nil {
-			log.Fatalf("querying %s: %s", c.name, err)
-		}
-		if len(cc) != 1 {
-			continue
-		}
-		if cc[0].Count == 0 {
-			continue
-		}
-		counts = append(counts, ccount{name: c.name, count: cc[0].Count})
-		tot += cc[0].Count
-	}
-	if tot == 0 {
-		log.Printf("no data for any counters on %s, doing nothing", day)
-		return
-	}
-
-	sort.Slice(counts, func(i, j int) bool {
-		if counts[i].count == counts[j].count {
-			return counts[i].name < counts[j].name
-		}
-		return counts[i].count > counts[j].count
-	})
-
-	yf := day.Format("Mon Jan 2")
-	stxt := fmt.Sprintf("%d #bikehfx trips counted on %s\n", tot, yf)
-	for _, c := range counts {
-		ctxt := fmt.Sprintf("\n%d %s", c.count, c.name)
-		if len(stxt)+len(ctxt) > 135 {
-			break
-		}
-		stxt += ctxt
-	}
-
-	// graph counters which support hourly resolution
-	gb, atxt, err := makeHourlyGraph(day, counters)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("at=tweet stxt=%q slen=%d atxt=%q", stxt, len(stxt), atxt)
-
-	if cfg.TestMode {
-		log.Println("test mode, writing graph.png")
-		if err := ioutil.WriteFile("graph.png", gb, 0600); err != nil {
-			log.Fatal(err)
-		}
-
-		log.Println("test mode, not tweeting")
-		return
-	}
-
 	oaConfig := oauth1.NewConfig(cfg.TwitterConsumerKey, cfg.TwitterConsumerSecret)
 	oaToken := oauth1.NewToken(cfg.TwitterAppToken, cfg.TwitterAppSecret)
 	cl := oaConfig.Client(oauth1.NoContext, oaToken)
-
-	mid, err := uploadMedia(cl, gb, atxt)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	twc := twitter.NewClient(cl)
-	tw, _, err := twc.Statuses.Update(stxt, &twitter.StatusUpdateParams{MediaIds: []int64{mid}})
-	if err != nil {
-		log.Fatal(err)
+	const screenName = "bikehfxstats" // TODO: dynamic
+
+	inReplyTo := cfg.InitialTweetInReplyTo
+	for dayidx, day := range days {
+		// load daily data for all counters
+		type ccount struct {
+			name  string
+			count int
+		}
+		counts := make([]ccount, 0, len(counters))
+
+		var tot int
+		for _, c := range counters {
+			cc, err := c.querier.query(day, ecocounter.ResolutionDay)
+			if err != nil {
+				log.Fatalf("querying %s: %s", c.name, err)
+			}
+			if len(cc) != 1 {
+				continue
+			}
+			if cc[0].Count == 0 {
+				continue
+			}
+			counts = append(counts, ccount{name: c.name, count: cc[0].Count})
+			tot += cc[0].Count
+		}
+		if tot == 0 {
+			log.Printf("no data for any counters on %s, doing nothing", day)
+			continue
+		}
+
+		sort.Slice(counts, func(i, j int) bool {
+			if counts[i].count == counts[j].count {
+				return counts[i].name < counts[j].name
+			}
+			return counts[i].count > counts[j].count
+		})
+
+		yf := day.Format("Mon Jan 2")
+		stxt := fmt.Sprintf("%d #bikehfx trips counted on %s\n", tot, yf)
+		if inReplyTo != 0 {
+			stxt = "@" + screenName + " " + stxt
+		}
+		for _, c := range counts {
+			ctxt := fmt.Sprintf("\n%d %s", c.count, c.name)
+			if len(stxt)+len(ctxt) > 200 {
+				break
+			}
+			stxt += ctxt
+		}
+
+		// graph counters which support hourly resolution
+		gb, atxt, err := makeHourlyGraph(day, counters)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("at=tweet day=%s stxt=%q slen=%d atxt=%q", day, stxt, len(stxt), atxt)
+
+		if cfg.TestMode {
+			log.Println("test mode, writing graph.png")
+			if err := ioutil.WriteFile("graph-"+day.Format("20060102")+".png", gb, 0600); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Println("test mode, not tweeting")
+
+			inReplyTo = int64(dayidx) + 1 // needs to be >0 to activate
+			continue
+		}
+
+		mid, err := uploadMedia(cl, gb, atxt)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		params := &twitter.StatusUpdateParams{
+			MediaIds:          []int64{mid},
+			InReplyToStatusID: inReplyTo,
+		}
+
+		tw, _, err := twc.Statuses.Update(stxt, params)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("https://twitter.com/" + tw.User.ScreenName + "/status/" + tw.IDStr)
+		inReplyTo = tw.ID
 	}
-	fmt.Println("https://twitter.com/" + tw.User.ScreenName + "/status/" + tw.IDStr)
 }
 
 func uploadMedia(cl *http.Client, m []byte, altText string) (int64, error) {
