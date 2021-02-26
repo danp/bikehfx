@@ -91,6 +91,8 @@ func main() {
 			// flows directly.
 			counter{name: "South Park", querier: ecoVisioQuerier{eva, []string{"101054257", "102054257"}}},
 			counter{name: "Hollis", querier: ecoVisioQuerier{eva, []string{"101059339"}}},
+			counter{name: "Vernon", querier: ecoVisioQuerier{eva, []string{"353254886"}}},
+			counter{name: "Windsor", querier: ecoVisioQuerier{eva, []string{"353252911"}}},
 		)
 	}
 
