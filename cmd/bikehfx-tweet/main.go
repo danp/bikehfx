@@ -2,462 +2,500 @@ package main
 
 import (
 	"bytes"
+	"context"
+	_ "embed"
 	"encoding/json"
+	"flag"
 	"fmt"
-	"io/ioutil"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
+	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
-	"sort"
+	"net/url"
+	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/danp/bikehfx/ecocounter"
-	"github.com/dghubble/go-twitter/twitter"
-	"github.com/dghubble/oauth1"
-	"github.com/joeshaw/envdecode"
+	"github.com/danp/counterbase/directory"
+	"github.com/danp/counterbase/query"
+	"github.com/peterbourgon/ff/v3"
+	"github.com/peterbourgon/ff/v3/ffcli"
+	"golang.org/x/image/font/opentype"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/font"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/plotutil"
+	"gonum.org/v1/plot/vg"
 )
 
-type countQuerier interface {
-	query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error)
-}
-
-type counter struct {
-	name    string
-	querier countQuerier
-}
-
 func main() {
-	var cfg struct {
-		TwitterConsumerKey    string `env:"TWITTER_CONSUMER_KEY,required"`
-		TwitterConsumerSecret string `env:"TWITTER_CONSUMER_SECRET,required"`
-		TwitterAppToken       string `env:"TWITTER_APP_TOKEN,required"`
-		TwitterAppSecret      string `env:"TWITTER_APP_SECRET,required"`
-		InitialTweetInReplyTo int64  `env:"INITIAL_TWEET_IN_REPLY_TO"`
+	rootCmd, rootCfg := newRootCmd()
 
-		EcoVisio struct {
-			Username string `env:"ECO_VISIO_USERNAME"`
-			Password string `env:"ECO_VISIO_PASSWORD"`
-			UserID   string `env:"ECO_VISIO_USER_ID"`
-			DomainID string `env:"ECO_VISIO_DOMAIN_ID"`
-		}
+	rootCmd.Subcommands = append(rootCmd.Subcommands,
+		newDailyCmd(rootCfg),
+		newWeeklyCmd(rootCfg),
+		newMonthlyCmd(rootCfg),
+		newYearlyCmd(rootCfg),
 
-		Day  string   `env:"DAY"`
-		Days []string `env:"DAYS"`
+		newHTTPCmd(rootCfg),
+	)
 
-		TestMode bool `env:"TEST_MODE"`
-	}
-	if err := envdecode.Decode(&cfg); err != nil {
+	if err := rootCmd.Parse(os.Args[1:]); err != nil {
 		log.Fatal(err)
 	}
 
-	var days []time.Time
-	if len(cfg.Days) == 0 {
-		day := time.Now().AddDate(0, 0, -1)
-		if cfg.Day != "" {
-			d, err := time.Parse("20060102", cfg.Day)
-			if err != nil {
-				log.Fatal(err)
-			}
-			day = d
-		}
-		days = append(days, day)
+	dir, err := loadDirectory(rootCfg.directoryURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	rootCfg.ccd = cyclingeCounterDirectoryWrapper{dir: dir}
+
+	qu := &query.Client{
+		URL: rootCfg.queryURL,
+	}
+
+	rootCfg.trq = counterbaseTimeRangeQuerier{querier: qu}
+
+	rootCfg.rc = counterbaseRecordsChecker{
+		qu:  qu,
+		ccd: rootCfg.ccd,
+	}
+
+	var tw tweeter
+	if rootCfg.testMode {
+		tw = &saveTweeter{}
 	} else {
-		for _, cd := range cfg.Days {
-			d, err := time.Parse("20060102", cd)
-			if err != nil {
-				log.Fatal(err)
-			}
-			days = append(days, d)
-		}
-	}
-
-	var ecl ecocounter.Client
-	// As of Aug 25, 2020, https://www.eco-public.com is not verifying.
-	// Using a browser loads things via http, not https.
-	ecl.BaseURL = "http://www.eco-public.com"
-
-	counters := []counter{
-		{name: "Uni Rowe", querier: clientPublicQuerier{&ecl, "100033028"}},
-		{name: "Uni Arts", querier: clientPublicQuerier{&ecl, "100036476"}},
-	}
-
-	if cfg.EcoVisio.Username != "" && cfg.EcoVisio.Password != "" && cfg.EcoVisio.UserID != "" && cfg.EcoVisio.DomainID != "" {
-		eva := newEcoVisioAuth(cfg.EcoVisio.Username, cfg.EcoVisio.Password, cfg.EcoVisio.UserID, cfg.EcoVisio.DomainID)
-
-		counters = append(counters,
-			// The main South Park id of 100054257 also picks up an extra formula
-			// dealy which messes up the data, so grab the northbound and southbound
-			// flows directly.
-			counter{name: "South Park", querier: ecoVisioQuerier{eva, []string{"101054257", "102054257"}}},
-			counter{name: "Hollis", querier: ecoVisioQuerier{eva, []string{"101059339"}}},
-			counter{name: "Vernon", querier: ecoVisioQuerier{eva, []string{"353254886"}}},
-			counter{name: "Windsor", querier: ecoVisioQuerier{eva, []string{"353252911"}}},
-		)
-	}
-
-	oaConfig := oauth1.NewConfig(cfg.TwitterConsumerKey, cfg.TwitterConsumerSecret)
-	oaToken := oauth1.NewToken(cfg.TwitterAppToken, cfg.TwitterAppSecret)
-	cl := oaConfig.Client(oauth1.NoContext, oaToken)
-	twc := twitter.NewClient(cl)
-	const screenName = "bikehfxstats" // TODO: dynamic
-
-	inReplyTo := cfg.InitialTweetInReplyTo
-	for dayidx, day := range days {
-		// load daily data for all counters
-		type ccount struct {
-			name  string
-			count int
-		}
-		counts := make([]ccount, 0, len(counters))
-
-		var tot int
-		for _, c := range counters {
-			cc, err := c.querier.query(day, ecocounter.ResolutionDay)
-			if err != nil {
-				log.Fatalf("querying %s: %s", c.name, err)
-			}
-			if len(cc) != 1 {
-				continue
-			}
-			if cc[0].Count == 0 {
-				continue
-			}
-			counts = append(counts, ccount{name: c.name, count: cc[0].Count})
-			tot += cc[0].Count
-		}
-		if tot == 0 {
-			log.Printf("no data for any counters on %s, doing nothing", day)
-			continue
-		}
-
-		sort.Slice(counts, func(i, j int) bool {
-			if counts[i].count == counts[j].count {
-				return counts[i].name < counts[j].name
-			}
-			return counts[i].count > counts[j].count
-		})
-
-		yf := day.Format("Mon Jan 2")
-		stxt := fmt.Sprintf("%d #bikehfx trips counted on %s\n", tot, yf)
-		if inReplyTo != 0 {
-			stxt = "@" + screenName + " " + stxt
-		}
-		for _, c := range counts {
-			ctxt := fmt.Sprintf("\n%d %s", c.count, c.name)
-			if len(stxt)+len(ctxt) > 200 {
-				break
-			}
-			stxt += ctxt
-		}
-
-		// graph counters which support hourly resolution
-		gb, atxt, err := makeHourlyGraph(day, counters)
+		tw, err = newTwitterTweeter(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
 
-		log.Printf("at=tweet day=%s stxt=%q slen=%d atxt=%q", day, stxt, len(stxt), atxt)
+	rootCfg.twt = &tweetThreader{t: tw, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet}
 
-		if cfg.TestMode {
-			log.Println("test mode, writing graph.png")
-			if err := ioutil.WriteFile("graph-"+day.Format("20060102")+".png", gb, 0600); err != nil {
-				log.Fatal(err)
-			}
-
-			log.Println("test mode, not tweeting")
-
-			inReplyTo = int64(dayidx) + 1 // needs to be >0 to activate
-			continue
-		}
-
-		mid, err := uploadMedia(cl, gb, atxt)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		params := &twitter.StatusUpdateParams{
-			MediaIds:          []int64{mid},
-			InReplyToStatusID: inReplyTo,
-		}
-
-		tw, _, err := twc.Statuses.Update(stxt, params)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println("https://twitter.com/" + tw.User.ScreenName + "/status/" + tw.IDStr)
-		inReplyTo = tw.ID
+	if err := rootCmd.Run(context.Background()); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func uploadMedia(cl *http.Client, m []byte, altText string) (int64, error) {
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
+type rootConfig struct {
+	directoryURL string
+	queryURL     string
 
-	fw, err := w.CreateFormField("media")
-	if err != nil {
-		return 0, err
-	}
-	if _, err := fw.Write(m); err != nil {
-		return 0, err
-	}
-	if err := w.Close(); err != nil {
-		return 0, err
-	}
+	twitterConsumerKey    string
+	twitterConsumerSecret string
+	twitterAppToken       string
+	twitterAppSecret      string
+	tweetInReplyTo        int64
+	initialTweet          string
 
-	req, err := http.NewRequest("POST", "https://upload.twitter.com/1.1/media/upload.json", &b)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
+	testMode bool
 
-	resp, err := cl.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("got status %d", resp.StatusCode)
-	}
-
-	var mresp struct {
-		MediaID int64 `json:"media_id"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&mresp); err != nil {
-		return 0, err
-	}
-
-	if altText == "" {
-		return mresp.MediaID, nil
-	}
-
-	var reqb struct {
-		MediaID string `json:"media_id"`
-		AltText struct {
-			Text string `json:"text"`
-		} `json:"alt_text"`
-	}
-	reqb.MediaID = strconv.FormatInt(mresp.MediaID, 10)
-	reqb.AltText.Text = altText
-
-	rb, err := json.Marshal(reqb)
-	if err != nil {
-		return 0, err
-	}
-
-	req, err = http.NewRequest("POST", "https://upload.twitter.com/1.1/media/metadata/create.json", bytes.NewReader(rb))
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
-
-	resp, err = cl.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("got status %d", resp.StatusCode)
-	}
-
-	return mresp.MediaID, nil
+	ccd cyclingCounterDirectory
+	trq timeRangeQuerier
+	rc  recordsChecker
+	twt tweetThread
 }
 
-type clientPublicQuerier struct {
-	cl *ecocounter.Client
-	id string
+func newRootCmd() (*ffcli.Command, *rootConfig) {
+	var cfg rootConfig
+
+	fs := flag.NewFlagSet("bikehfx-tweet", flag.ExitOnError)
+
+	fs.StringVar(&cfg.directoryURL, "directory-url", "", "directory URL")
+	fs.StringVar(&cfg.queryURL, "query-url", "", "query URL")
+
+	fs.StringVar(&cfg.twitterConsumerKey, "twitter-consumer-key", "", "twitter consumer key")
+	fs.StringVar(&cfg.twitterConsumerSecret, "twitter-consumer-secret", "", "twitter consumer secret")
+	fs.StringVar(&cfg.twitterAppToken, "twitter-app-token", "", "twitter app token")
+	fs.StringVar(&cfg.twitterAppSecret, "twitter-app-secret", "", "twitter app secret")
+	fs.Int64Var(&cfg.tweetInReplyTo, "tweet-in-reply-to", 0, "if set, first tweet will reply to this status")
+	fs.StringVar(&cfg.initialTweet, "initial-tweet", "", "if set, text for first tweet")
+
+	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated tweets to disk instead of tweeting")
+
+	return &ffcli.Command{
+		ShortUsage: "bikehfx-tweet [flags] <subcommand>",
+		FlagSet:    fs,
+		Options:    []ff.Option{ff.WithEnvVarNoPrefix()},
+		Exec: func(ctx context.Context, args []string) error {
+			return flag.ErrHelp
+		},
+	}, &cfg
 }
 
-func (q clientPublicQuerier) query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error) {
-	return q.cl.GetDatapoints(q.id, day, day, resolution)
-}
+func loadDirectory(src string) (Directory, error) {
+	var counters []directory.Counter
 
-type ecoVisioAuth struct {
-	username, password, userID, domainID string
-
-	// should support expiry, etc
-	tokenCh chan string
-}
-
-func newEcoVisioAuth(username, password, userID, domainID string) *ecoVisioAuth {
-	ch := make(chan string, 1)
-	ch <- ""
-	return &ecoVisioAuth{
-		username: username,
-		password: password,
-		userID:   userID,
-		domainID: domainID,
-		tokenCh:  ch,
-	}
-}
-
-func (a *ecoVisioAuth) token() (string, error) {
-	tok := <-a.tokenCh
-	if tok == "" {
-		t, err := a.auth()
-		if err != nil {
-			a.tokenCh <- ""
-			return "", err
-		}
-		tok = t
-	}
-	a.tokenCh <- tok
-	return tok, nil
-}
-
-func (a *ecoVisioAuth) auth() (string, error) {
-	reqs := struct {
-		Login    string `json:"login"`
-		Password string `json:"password"`
-	}{
-		Login:    a.username,
-		Password: a.password,
-	}
-	reqb, err := json.Marshal(reqs)
+	u, err := url.Parse(src)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", "https://www.eco-visio.net/api/aladdin/1.0.0/connect", bytes.NewReader(reqb))
-	if err != nil {
-		return "", err
-	}
+	switch u.Scheme {
+	case "file":
+		src = u.Path
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:80.0) Gecko/20100101 Firefox/80.0")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.Header.Set("Origin", "https://www.eco-visio.net")
-	req.Header.Set("DNT", "1")
-	req.Header.Set("Referer", "https://www.eco-visio.net/v5/")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("reading eco visio auth response: %w", err)
-	}
-
-	if resp.StatusCode/100 != 2 {
-		if len(b) > 100 {
-			b = b[:100]
-		}
-		return "", fmt.Errorf("bad status %d for eco visio auth: %s", resp.StatusCode, b)
-	}
-
-	var resps struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.Unmarshal(b, &resps); err != nil {
-		return "", fmt.Errorf("decoding eco visio auth response: %w", err)
-	}
-
-	return resps.AccessToken, nil
-}
-
-type ecoVisioQuerier struct {
-	auth    *ecoVisioAuth
-	flowIDs []string
-}
-
-func (q ecoVisioQuerier) query(day time.Time, resolution ecocounter.Resolution) ([]ecocounter.Datapoint, error) {
-	var ress string
-	switch resolution {
-	case ecocounter.ResolutionDay:
-		ress = "day"
-	case ecocounter.ResolutionHour:
-		ress = "1hour"
-	}
-	if ress == "" {
-		return nil, nil
-	}
-
-	begin, end := day.Format("2006-01-02"), day.AddDate(0, 0, 1).Format("2006-01-02")
-	bu := "https://www.eco-visio.net/api/aladdin/1.0.0/domain/" + q.auth.domainID + "/user/" + q.auth.userID + "/query/from/" + begin + "%2000:00/to/" + end + "%2000:00/by/" + ress
-
-	var reqs struct {
-		Flows []int `json:"flows"`
-	}
-	for _, fid := range q.flowIDs {
-		idi, err := strconv.Atoi(fid)
+		f, err := os.Open(src)
 		if err != nil {
 			return nil, err
 		}
-		reqs.Flows = append(reqs.Flows, idi)
-	}
-	reqb, err := json.Marshal(reqs)
-	if err != nil {
-		return nil, err
-	}
+		defer f.Close()
 
-	req, err := http.NewRequest("POST", bu, bytes.NewReader(reqb))
-	if err != nil {
-		return nil, err
-	}
-
-	tok, err := q.auth.token()
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:80.0) Gecko/20100101 Firefox/80.0")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.Header.Set("Origin", "https://www.eco-visio.net")
-	req.Header.Set("DNT", "1")
-	req.Header.Set("Referer", "https://www.eco-visio.net/v5/")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading query response for %s: %w", q.flowIDs, err)
-	}
-
-	if resp.StatusCode/100 != 2 {
-		if len(b) > 100 {
-			b = b[:100]
+		if err := json.NewDecoder(f).Decode(&counters); err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("bad status %d querying %s: %s", resp.StatusCode, q.flowIDs, b)
+	case "http", "https":
+		resp, err := http.Get(src)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("-directory-url: bad status %d", resp.StatusCode)
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&counters); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("-directory-url: unsupported scheme %q", u.Scheme)
 	}
 
-	var resps map[string]struct {
-		Countdata [][]interface{}
+	return &fakeDirectory{C: counters}, nil
+}
+
+type tweetThread interface {
+	tweetThread(context.Context, []tweet) ([]int64, error)
+}
+
+type tweeter interface {
+	tweet(context.Context, tweet) (int64, error)
+}
+
+type Directory interface {
+	Counters(context.Context) ([]directory.Counter, error)
+}
+
+type Querier interface {
+	Query(ctx context.Context, q string) (query.Matrix, error)
+}
+
+//go:embed Arial.ttf
+var arialBytes []byte
+
+var (
+	initGraphOnce sync.Once
+	initGraphErr  error
+)
+
+func initGraph() error {
+	initGraphOnce.Do(func() {
+		arialTTF, err := opentype.Parse(arialBytes)
+		if err != nil {
+			initGraphErr = err
+			return
+		}
+		arial := font.Font{Typeface: "Arial"}
+		font.DefaultCache.Add([]font.Face{
+			{
+				Font: arial,
+				Face: arialTTF,
+			},
+		})
+		plot.DefaultFont = arial
+		plotter.DefaultFont = arial
+	})
+	return initGraphErr
+}
+
+type fakeDirectory struct {
+	C []directory.Counter
+}
+
+func (f fakeDirectory) Counters(ctx context.Context) ([]directory.Counter, error) {
+	return f.C, nil
+}
+
+type commaSeparatedString struct {
+	vals []string
+}
+
+func (c *commaSeparatedString) Set(s string) error {
+	c.vals = strings.Split(s, ",")
+	return nil
+}
+
+func (c *commaSeparatedString) String() string {
+	return strings.Join(c.vals, ",")
+}
+
+// [begin, end)
+type timeRange struct {
+	begin, end time.Time
+}
+
+func newTimeRangeDate(begin time.Time, years, months, days int) timeRange {
+	return timeRange{begin: begin, end: begin.AddDate(years, months, days)}
+}
+
+func newTimeRangeDuration(begin time.Time, d time.Duration) timeRange {
+	return timeRange{begin: begin, end: begin.Add(d)}
+}
+
+func (r timeRange) addDate(years, months, days int) timeRange {
+	return timeRange{begin: r.begin.AddDate(years, months, days), end: r.end.AddDate(years, months, days)}
+}
+
+func (r timeRange) add(d time.Duration) timeRange {
+	return timeRange{begin: r.begin.Add(d), end: r.end.Add(d)}
+}
+
+func (r timeRange) splitDate(years, months, days int) []timeRange {
+	end := r.end
+	r = newTimeRangeDate(r.begin, years, months, days)
+
+	var out []timeRange
+	for r.begin.Before(end) {
+		out = append(out, r)
+		r = r.addDate(years, months, days)
 	}
-	if err := json.Unmarshal(b, &resps); err != nil {
-		return nil, fmt.Errorf("unmarshaling query response for %s: %w", q.flowIDs, err)
+	return out
+}
+
+func (r timeRange) split(d time.Duration) []timeRange {
+	end := r.end
+	r = newTimeRangeDuration(r.begin, d)
+
+	var out []timeRange
+	for r.begin.Before(end) {
+		out = append(out, r)
+		r = r.add(d)
+	}
+	return out
+}
+
+type timeRangeValue struct {
+	tr  timeRange
+	val int
+}
+
+func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRange) string) (io.ReadCloser, error) {
+	if err := initGraph(); err != nil {
+		return nil, err
+	}
+	plotutil.DefaultColors = plotutil.DarkColors
+
+	p := plot.New()
+
+	p.Title.Text = title
+	p.Title.Padding = vg.Length(5)
+
+	p.Y.Min = 0
+	p.Y.Label.Text = "Count"
+	p.Y.Label.Padding = vg.Length(5)
+
+	// We only deal with whole numbers so undo any use of strconv.FormatFloat.
+	origYMarker := p.Y.Tick.Marker
+	p.Y.Tick.Marker = plot.TickerFunc(func(min, max float64) []plot.Tick {
+		ticks := origYMarker.Ticks(min, max)
+		for i := range ticks {
+			if ticks[i].Label == "" {
+				continue
+			}
+			ticks[i].Label = strconv.Itoa(int(ticks[i].Value))
+		}
+		return ticks
+	})
+	p.Y.Tick.Marker = plot.TickerFunc(thousandTicker(p.Y.Tick.Marker))
+
+	p.Legend.Top = true
+
+	values := make(plotter.Values, 0, len(trvs))
+	xLabels := make([]string, 0, len(trvs))
+
+	for _, trv := range trvs {
+		values = append(values, float64(trv.val))
+		xLabels = append(xLabels, labeler(trv.tr))
 	}
 
-	// Sum up all the flows we got, by time period.
-	dps := make(map[string]ecocounter.Datapoint)
-	for _, re := range resps {
-		for _, rd := range re.Countdata {
-			t := rd[0].(string)
-			dp := dps[t]
-			dp.Time = t
-			dp.Count += int(rd[1].(float64))
-			dps[t] = dp
+	bar, err := plotter.NewBarChart(values, vg.Points(40))
+	if err != nil {
+		return nil, err
+	}
+	p.Add(bar)
+	p.NominalX(xLabels...)
+
+	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
+	if err != nil {
+		return nil, err
+	}
+
+	var b bytes.Buffer
+	if _, err := wt.WriteTo(&b); err != nil {
+		return nil, err
+	}
+
+	if err := padImage(&b); err != nil {
+		return nil, err
+	}
+
+	return io.NopCloser(&b), nil
+}
+
+func thousandTicker(t plot.Ticker) func(min, max float64) []plot.Tick {
+	return func(min, max float64) []plot.Tick {
+		tt := t.Ticks(min, max)
+		for i := range tt {
+			if tt[i].Label == "" || tt[i].Value < 1000 || int(tt[i].Value)%1000 != 0 {
+				continue
+			}
+			tt[i].Label = fmt.Sprintf("%dk", int(tt[i].Value/1000))
+		}
+		return tt
+	}
+}
+
+type counterSeries struct {
+	counter directory.Counter
+	series  []timeRangeValue
+}
+
+type timeRangeQuerier interface {
+	queryCounterSeries(ctx context.Context, counters []directory.Counter, trs []timeRange) ([]counterSeries, error)
+}
+
+type counterbaseTimeRangeQuerier struct {
+	querier Querier
+}
+
+func (q counterbaseTimeRangeQuerier) queryCounterSeries(ctx context.Context, counters []directory.Counter, trs []timeRange) ([]counterSeries, error) {
+	var out []counterSeries
+
+	for _, c := range counters {
+		trvs, err := q.query(ctx, c.ID, trs)
+		if err != nil {
+			return nil, err
+		}
+		if len(trvs) == 0 {
+			continue
+		}
+		if trvSum(trvs) == 0 {
+			continue
+		}
+
+		out = append(out, counterSeries{counter: c, series: trvs})
+	}
+
+	return out, nil
+}
+
+func (q counterbaseTimeRangeQuerier) query(ctx context.Context, counterID string, trs []timeRange) ([]timeRangeValue, error) {
+	var whens []string
+	for _, tr := range trs {
+		when := fmt.Sprintf("when time >= %d and time < %d then %d", tr.begin.Unix(), tr.end.Unix(), tr.begin.Unix())
+		whens = append(whens, when)
+	}
+	caseWhen := "case " + strings.Join(whens, " ") + " end"
+
+	qq := fmt.Sprintf("select %s as time, sum(value) from counter_data where counter_id='%s' and time >= %d and time < %d group by 1", caseWhen, counterID, trs[0].begin.Unix(), trs[len(trs)-1].end.Unix())
+	mat, err := q.querier.Query(ctx, qq)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(mat) == 0 {
+		return nil, err
+	}
+
+	var trvs []timeRangeValue
+	for _, tr := range trs {
+		trv := timeRangeValue{tr: tr}
+		for _, v := range mat[0].Values {
+			if v.Timestamp.Time().Equal(tr.begin) {
+				trv.val = int(v.Value)
+				break
+			}
+		}
+		trvs = append(trvs, trv)
+	}
+
+	return trvs, nil
+}
+
+type cyclingCounterDirectory interface {
+	counters(ctx context.Context, inService timeRange) ([]directory.Counter, error)
+}
+
+type cyclingeCounterDirectoryWrapper struct {
+	dir Directory
+}
+
+func (d cyclingeCounterDirectoryWrapper) counters(ctx context.Context, inService timeRange) ([]directory.Counter, error) {
+	counters, err := d.dir.Counters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var cyclingCounters []directory.Counter
+	for _, c := range counters {
+		if c.Mode != "cycling" {
+			continue
+		}
+
+		for _, sr := range c.ServiceRanges {
+			//     |---|
+			// |--|
+			// did this range end before inService began
+			// is sr.End < inService.begin?
+			if !sr.End.IsZero() && sr.End.Before(inService.begin) {
+				continue
+			}
+
+			//     |---|
+			//          |--|
+			// did this range start after inService ended?
+			// is sr.Begin >= inService.end?
+			// is inService.end < sr.Start?
+			if !inService.end.IsZero() && inService.end.Before(sr.Start.Time) {
+				continue
+			}
+
+			cyclingCounters = append(cyclingCounters, c)
+			break
 		}
 	}
 
-	ds := make([]ecocounter.Datapoint, 0, len(dps))
-	for _, dp := range dps {
-		ds = append(ds, dp)
-	}
-	sort.Slice(ds, func(i, j int) bool { return ds[i].Time < ds[j].Time })
+	return cyclingCounters, nil
+}
 
-	return ds, nil
+func padImage(b *bytes.Buffer) error {
+	img, _, err := image.Decode(b)
+	if err != nil {
+		return err
+	}
+
+	bnds := img.Bounds()
+	const padding = 20
+	outRect := image.Rect(bnds.Min.X-padding, bnds.Min.Y-padding, bnds.Max.X+padding, bnds.Max.Y+padding)
+	out := image.NewRGBA(outRect)
+	draw.Draw(out, out.Bounds(), &image.Uniform{color.RGBA{255, 255, 255, 255}}, image.Point{}, draw.Src)
+	draw.Draw(out, img.Bounds(), img, outRect.Min.Add(image.Pt(padding, padding)), draw.Over)
+
+	b.Reset()
+	return png.Encode(b, out)
+}
+
+func trvSum(trvs []timeRangeValue) int {
+	var out int
+	for _, trv := range trvs {
+		out += trv.val
+	}
+	return out
 }
