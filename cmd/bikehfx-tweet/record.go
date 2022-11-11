@@ -44,7 +44,6 @@ func (r counterbaseRecordsChecker) check(ctx context.Context, before time.Time, 
 	if width != recordWidthYear {
 		recordRanges[recordKindYTD] = timeRange{begin: boy, end: before}
 		recordRangeOrder = append(recordRangeOrder, recordKindYTD)
-
 	}
 	records := make(map[string]recordKind)
 

@@ -41,8 +41,6 @@ func main() {
 		newWeeklyCmd(rootCfg),
 		newMonthlyCmd(rootCfg),
 		newYearlyCmd(rootCfg),
-
-		newHTTPCmd(rootCfg),
 	)
 
 	if err := rootCmd.Parse(os.Args[1:]); err != nil {
@@ -152,7 +150,7 @@ func loadDirectory(src string) (Directory, error) {
 			return nil, err
 		}
 	case "http", "https":
-		resp, err := http.Get(src)
+		resp, err := http.Get(src) //nolint:gosec
 		if err != nil {
 			return nil, err
 		}
@@ -237,9 +235,8 @@ func (c *commaSeparatedString) String() string {
 	return strings.Join(c.vals, ",")
 }
 
-// [begin, end)
 type timeRange struct {
-	begin, end time.Time
+	begin, end time.Time // [begin, end)
 }
 
 func newTimeRangeDate(begin time.Time, years, months, days int) timeRange {

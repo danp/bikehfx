@@ -98,14 +98,6 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 
 		media := []tweetMedia{{r: dg, altText: dat}}
 
-		/*
-			dp, err := dailyPie(daySeries)
-			if err != nil {
-				return err
-			}
-			defer dp.Close()
-		*/
-
 		tweets = append(tweets, tweet{
 			text:  dt,
 			media: media,
@@ -205,59 +197,6 @@ func dailyGraph(day time.Time, cs []counterSeries) (io.ReadCloser, error) {
 
 		p.Add(ln)
 		p.Legend.Add(cn, ln)
-	}
-
-	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
-	if err != nil {
-		return nil, err
-	}
-
-	var b bytes.Buffer
-	if _, err := wt.WriteTo(&b); err != nil {
-		return nil, err
-	}
-
-	if err := padImage(&b); err != nil {
-		return nil, err
-	}
-
-	return io.NopCloser(&b), nil
-}
-
-func dailyPie(cs []counterSeries) (io.ReadCloser, error) {
-	if err := initGraph(); err != nil {
-		return nil, err
-	}
-	plotutil.DefaultColors = plotutil.DarkColors
-
-	p := plot.New()
-	p.HideAxes()
-
-	var tot int
-	for _, c := range cs {
-		tot += c.series[0].val
-	}
-
-	var offset int
-	for _, c := range cs {
-		pie, err := NewPieChart(plotter.Values{float64(c.series[0].val)})
-		if err != nil {
-			panic(err)
-		}
-		pie.Labels.Show = false
-		pie.Total = float64(tot)
-		pie.Offset.Value = float64(offset)
-
-		ci := crc32.ChecksumIEEE([]byte(c.counter.Name))
-		pie.Color = plotutil.Color(int(ci))
-		pie.LineStyle.Color = plotutil.Color(int(ci))
-		pie.LineStyle.Dashes = plotutil.Dashes(int(ci))
-		pie.LineStyle.Width = vg.Points(2)
-
-		p.Add(pie)
-		p.Legend.Add(c.counter.Name, pie)
-
-		offset += c.series[0].val
 	}
 
 	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")

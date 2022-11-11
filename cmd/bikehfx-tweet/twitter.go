@@ -227,7 +227,7 @@ func (s *saveTweeter) tweet(ctx context.Context, tw tweet) (int64, error) {
 		tw.text = "in reply to " + strconv.FormatInt(tw.inReplyTo, 10) + ": " + tw.text
 	}
 
-	if err := os.WriteFile(prefix+".txt", []byte(tw.text), 0644); err != nil {
+	if err := os.WriteFile(prefix+".txt", []byte(tw.text), 0600); err != nil {
 		return 0, err
 	}
 
@@ -242,7 +242,7 @@ func (s *saveTweeter) tweet(ctx context.Context, tw tweet) (int64, error) {
 			return 0, err
 		}
 
-		if err := os.WriteFile(fmt.Sprintf("%s-media-%d.txt", prefix, mi), []byte(m.altText), 0644); err != nil {
+		if err := os.WriteFile(fmt.Sprintf("%s-media-%d.txt", prefix, mi), []byte(m.altText), 0600); err != nil {
 			return 0, err
 		}
 	}
