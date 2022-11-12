@@ -126,13 +126,13 @@ func isRecordForCounters(ctx context.Context, qu Querier, counters []directory.C
 	q += strings.Join(conds, " and ")
 	q += ` group by 1 order by 2 desc limit 1`
 
-	mat, err := qu.Query(ctx, q)
+	pts, err := qu.Query(ctx, q)
 	if err != nil {
 		return false, err
 	}
-	if len(mat) == 0 || len(mat[0].Values) == 0 {
+	if len(pts) == 0 {
 		return true, nil
 	}
 
-	return int(mat[0].Values[0].Value) < val, nil
+	return int(pts[0].Value) < val, nil
 }

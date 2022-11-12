@@ -183,7 +183,7 @@ type Directory interface {
 }
 
 type Querier interface {
-	Query(ctx context.Context, q string) (query.Matrix, error)
+	Query(ctx context.Context, q string) ([]query.Point, error)
 }
 
 //go:embed Arial.ttf
@@ -403,21 +403,21 @@ func (q counterbaseTimeRangeQuerier) query(ctx context.Context, counterID string
 	caseWhen := "case " + strings.Join(whens, " ") + " end"
 
 	qq := fmt.Sprintf("select %s as time, sum(value) from counter_data where counter_id='%s' and time >= %d and time < %d group by 1", caseWhen, counterID, trs[0].begin.Unix(), trs[len(trs)-1].end.Unix())
-	mat, err := q.querier.Query(ctx, qq)
+	pts, err := q.querier.Query(ctx, qq)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(mat) == 0 {
+	if len(pts) == 0 {
 		return nil, err
 	}
 
 	var trvs []timeRangeValue
 	for _, tr := range trs {
 		trv := timeRangeValue{tr: tr}
-		for _, v := range mat[0].Values {
-			if v.Timestamp.Time().Equal(tr.begin) {
-				trv.val = int(v.Value)
+		for _, p := range pts {
+			if p.Time.Equal(tr.begin) {
+				trv.val = int(p.Value)
 				break
 			}
 		}
