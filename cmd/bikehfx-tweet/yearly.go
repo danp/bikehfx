@@ -126,7 +126,6 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 		if err != nil {
 			return err
 		}
-		defer gr.Close()
 
 		atg := altTextGenerator{
 			headlinePrinter: func(p *message.Printer, len int) string {
@@ -156,7 +155,7 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 		tweets = append(tweets, tweet{
 			text: mt,
 			media: []tweetMedia{
-				{r: gr, altText: altText},
+				{b: gr, altText: altText},
 			},
 		})
 	}

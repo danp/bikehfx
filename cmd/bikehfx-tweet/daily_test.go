@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -33,9 +34,8 @@ func TestDailyGraph(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer img.Close()
 
-		if err := writeFileFromReader("testdata/daily_graph_"+outFilename+".png", img); err != nil {
+		if err := os.WriteFile("testdata/daily_graph_"+outFilename+".png", img, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}

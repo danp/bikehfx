@@ -14,15 +14,16 @@ import (
 
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
+	"github.com/mattn/go-mastodon"
 )
 
 type tweetThreader struct {
 	t         tweeter
-	inReplyTo int64
+	inReplyTo string
 	initial   string
 }
 
-func (t *tweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]int64, error) {
+func (t tweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]string, error) {
 	inReplyTo := t.inReplyTo
 
 	if t.initial != "" {
@@ -32,7 +33,7 @@ func (t *tweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]int64, 
 		tws = append([]tweet{initial}, tws...)
 	}
 
-	ids := make([]int64, len(tws))
+	ids := make([]string, len(tws))
 	for i, tw := range tws {
 		tw.inReplyTo = inReplyTo
 
@@ -49,13 +50,27 @@ func (t *tweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]int64, 
 	return ids, nil
 }
 
+type multiTweetThreader []tweetThreader
+
+func (m multiTweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]string, error) {
+	var ids []string
+	for _, t := range m {
+		is, err := t.tweetThread(ctx, tws)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, is...)
+	}
+	return ids, nil
+}
+
 type twitterTweeter struct {
 	tc         *twitter.Client
 	hc         *http.Client
 	screenName string
 }
 
-func newTwitterTweeter(consumerKey, consumerSecret, appToken, appSecret string) (*twitterTweeter, error) {
+func newTwitterTweeter(consumerKey, consumerSecret, appToken, appSecret string) (twitterTweeter, error) {
 	oaConfig := oauth1.NewConfig(consumerKey, consumerSecret)
 	oaToken := oauth1.NewToken(appToken, appSecret)
 	cl := oaConfig.Client(oauth1.NoContext, oaToken)
@@ -66,10 +81,10 @@ func newTwitterTweeter(consumerKey, consumerSecret, appToken, appSecret string) 
 		SkipStatus:      twitter.Bool(true),
 	})
 	if err != nil {
-		return nil, err
+		return twitterTweeter{}, err
 	}
 
-	return &twitterTweeter{
+	return twitterTweeter{
 		tc:         twc,
 		hc:         cl,
 		screenName: currentUser.ScreenName,
@@ -77,44 +92,48 @@ func newTwitterTweeter(consumerKey, consumerSecret, appToken, appSecret string) 
 }
 
 type tweetMedia struct {
-	r       io.Reader
+	b       []byte
 	altText string
 }
 
 type tweet struct {
-	inReplyTo int64
+	inReplyTo string
 	text      string
 
 	media []tweetMedia
 }
 
-func (t *twitterTweeter) tweet(ctx context.Context, tw tweet) (int64, error) {
+func (t twitterTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
 	var mediaIDs []int64
 	for _, m := range tw.media {
 		id, err := t.uploadMedia(m)
 		if err != nil {
-			return 0, fmt.Errorf("uploading media: %w", err)
+			return "", fmt.Errorf("uploading media: %w", err)
 		}
 		mediaIDs = append(mediaIDs, id)
 	}
 
+	n, err := strconv.ParseInt(tw.inReplyTo, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("bad inReplyTo %v", tw.inReplyTo)
+	}
 	params := &twitter.StatusUpdateParams{
 		MediaIds:          mediaIDs,
-		InReplyToStatusID: tw.inReplyTo,
+		InReplyToStatusID: n,
 	}
 
-	if tw.inReplyTo != 0 {
+	if tw.inReplyTo != "" {
 		tw.text = "@" + t.screenName + " " + tw.text
 	}
 
 	res, _, err := t.tc.Statuses.Update(tw.text, params)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
-	return res.ID, nil
+	return fmt.Sprint(res.ID), nil
 }
 
-func (t *twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
+func (t twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
@@ -122,7 +141,7 @@ func (t *twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := io.Copy(fw, med.r); err != nil {
+	if _, err := fw.Write(med.b); err != nil {
 		return 0, err
 	}
 	if err := w.Close(); err != nil {
@@ -209,41 +228,89 @@ func (t *twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
 	return mresp.MediaID, nil
 }
 
+type mastodonTooter struct {
+	c *mastodon.Client
+}
+
+func newMastodonTooter(server, clientID, clientSecret, accessToken string) (mastodonTooter, error) {
+	cl := mastodon.NewClient(&mastodon.Config{
+		Server:       server,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		AccessToken:  accessToken,
+	})
+
+	_, err := cl.GetAccountCurrentUser(context.Background())
+	if err != nil {
+		return mastodonTooter{}, err
+	}
+
+	return mastodonTooter{cl}, nil
+}
+
+func (m mastodonTooter) tweet(ctx context.Context, tw tweet) (string, error) {
+	var mediaIDs []mastodon.ID
+	for _, tm := range tw.media {
+		med := &mastodon.Media{
+			File:        bytes.NewReader(tm.b),
+			Description: tm.altText,
+		}
+		att, err := m.c.UploadMediaFromMedia(ctx, med)
+		if err != nil {
+			return "", err
+		}
+		mediaIDs = append(mediaIDs, att.ID)
+	}
+
+	t := &mastodon.Toot{
+		Status:      tw.text,
+		MediaIDs:    mediaIDs,
+		InReplyToID: mastodon.ID(tw.inReplyTo),
+	}
+
+	st, err := m.c.PostStatus(ctx, t)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprint(st.ID), nil
+}
+
 type saveTweeter struct {
 	mu sync.Mutex
 	id int64
 }
 
-func (s *saveTweeter) tweet(ctx context.Context, tw tweet) (int64, error) {
+func (s *saveTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.id++ // avoid 0
-	id := s.id
+	id := fmt.Sprint(s.id)
 
-	prefix := fmt.Sprintf("tweet-%d", id)
+	prefix := fmt.Sprintf("tweet-%v", id)
 
-	if tw.inReplyTo != 0 {
-		tw.text = "in reply to " + strconv.FormatInt(tw.inReplyTo, 10) + ": " + tw.text
+	if tw.inReplyTo != "" {
+		tw.text = "in reply to " + tw.inReplyTo + ": " + tw.text
 	}
 
 	if err := os.WriteFile(prefix+".txt", []byte(tw.text), 0600); err != nil {
-		return 0, err
+		return "", err
 	}
 
 	for mi, m := range tw.media {
 		mf, err := os.Create(fmt.Sprintf("%s-media-%d.png", prefix, mi))
 		if err != nil {
-			return 0, err
+			return "", err
 		}
 		defer mf.Close()
 
-		if _, err := io.Copy(mf, m.r); err != nil {
-			return 0, err
+		if _, err := mf.Write(m.b); err != nil {
+			return "", err
 		}
 
 		if err := os.WriteFile(fmt.Sprintf("%s-media-%d.txt", prefix, mi), []byte(m.altText), 0600); err != nil {
-			return 0, err
+			return "", err
 		}
 	}
 

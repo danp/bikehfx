@@ -11,7 +11,6 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -65,17 +64,37 @@ func main() {
 		ccd: rootCfg.ccd,
 	}
 
-	var tw tweeter
+	var tt tweetThread
 	if rootCfg.testMode {
-		tw = &saveTweeter{}
+		tt = tweetThreader{t: &saveTweeter{}, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet}
 	} else {
-		tw, err = newTwitterTweeter(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
-		if err != nil {
-			log.Fatal(err)
+		var mtt multiTweetThreader
+
+		if rootCfg.twitterAppSecret != "" {
+			tw, err := newTwitterTweeter(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
+			if err != nil {
+				log.Fatal(err)
+			}
+			mtt = append(mtt, tweetThreader{t: tw, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
 		}
+
+		if rootCfg.mastodonClientID != "" {
+			if rootCfg.tweetInReplyTo != "" {
+				log.Fatal("not yet supported, need to break things apart more")
+			}
+
+			mt, err := newMastodonTooter(rootCfg.mastodonServer, rootCfg.mastodonClientID, rootCfg.mastodonClientSecret, rootCfg.mastodonAccessToken)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			mtt = append(mtt, tweetThreader{t: mt, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
+		}
+
+		tt = mtt
 	}
 
-	rootCfg.twt = &tweetThreader{t: tw, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet}
+	rootCfg.twt = tt
 
 	if err := rootCmd.Run(context.Background()); err != nil {
 		log.Fatal(err)
@@ -90,8 +109,14 @@ type rootConfig struct {
 	twitterConsumerSecret string
 	twitterAppToken       string
 	twitterAppSecret      string
-	tweetInReplyTo        int64
-	initialTweet          string
+	tweetInReplyTo        string
+
+	mastodonServer       string
+	mastodonClientID     string
+	mastodonClientSecret string
+	mastodonAccessToken  string
+
+	initialTweet string
 
 	testMode bool
 
@@ -113,8 +138,14 @@ func newRootCmd() (*ffcli.Command, *rootConfig) {
 	fs.StringVar(&cfg.twitterConsumerSecret, "twitter-consumer-secret", "", "twitter consumer secret")
 	fs.StringVar(&cfg.twitterAppToken, "twitter-app-token", "", "twitter app token")
 	fs.StringVar(&cfg.twitterAppSecret, "twitter-app-secret", "", "twitter app secret")
-	fs.Int64Var(&cfg.tweetInReplyTo, "tweet-in-reply-to", 0, "if set, first tweet will reply to this status")
+	fs.StringVar(&cfg.tweetInReplyTo, "tweet-in-reply-to", "", "if set, first tweet will reply to this status")
 	fs.StringVar(&cfg.initialTweet, "initial-tweet", "", "if set, text for first tweet")
+
+	fs.StringVar(&cfg.mastodonServer, "mastodon-server", "", "mastodon server URL")
+	// https://docs.joinmastodon.org/client/token/, requires read:accounts, write:media, write:statuses
+	fs.StringVar(&cfg.mastodonClientID, "mastodon-client-id", "", "mastodon client id/key")
+	fs.StringVar(&cfg.mastodonClientSecret, "mastodon-client-secret", "", "mastodon client secret")
+	fs.StringVar(&cfg.mastodonAccessToken, "mastodon-access-token", "", "mastodon access token")
 
 	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated tweets to disk instead of tweeting")
 
@@ -171,11 +202,11 @@ func loadDirectory(src string) (Directory, error) {
 }
 
 type tweetThread interface {
-	tweetThread(context.Context, []tweet) ([]int64, error)
+	tweetThread(context.Context, []tweet) ([]string, error)
 }
 
 type tweeter interface {
-	tweet(context.Context, tweet) (int64, error)
+	tweet(context.Context, tweet) (string, error)
 }
 
 type Directory interface {
@@ -284,7 +315,7 @@ type timeRangeValue struct {
 	val int
 }
 
-func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRange) string) (io.ReadCloser, error) {
+func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRange) string) ([]byte, error) {
 	if err := initGraph(); err != nil {
 		return nil, err
 	}
@@ -344,7 +375,7 @@ func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRan
 		return nil, err
 	}
 
-	return io.NopCloser(&b), nil
+	return b.Bytes(), nil
 }
 
 func thousandTicker(t plot.Ticker) func(min, max float64) []plot.Tick {

@@ -126,7 +126,6 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 		if err != nil {
 			return err
 		}
-		defer gr.Close()
 
 		atg := altTextGenerator{
 			headlinePrinter: func(p *message.Printer, len int) string {
@@ -156,7 +155,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 		tweets = append(tweets, tweet{
 			text: mt,
 			media: []tweetMedia{
-				{r: gr, altText: altText},
+				{b: gr, altText: altText},
 			},
 		})
 	}

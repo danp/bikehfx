@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"image/color"
-	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,11 +91,10 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 		if err != nil {
 			return err
 		}
-		defer dg.Close()
 
 		dat := dailyAltText(hourSeries)
 
-		media := []tweetMedia{{r: dg, altText: dat}}
+		media := []tweetMedia{{b: dg, altText: dat}}
 
 		tweets = append(tweets, tweet{
 			text:  dt,
@@ -108,7 +106,7 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 	return err
 }
 
-func dailyGraph(day time.Time, cs []counterSeries) (io.ReadCloser, error) {
+func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
 	counterXYs := make(map[string]plotter.XYs)
 
 	earliestNonZeroHour := 24
@@ -213,7 +211,7 @@ func dailyGraph(day time.Time, cs []counterSeries) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	return io.NopCloser(&b), nil
+	return b.Bytes(), nil
 }
 
 func dailyAltText(cs []counterSeries) string {

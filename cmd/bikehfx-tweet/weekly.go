@@ -97,7 +97,6 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		if err != nil {
 			return err
 		}
-		defer gr.Close()
 
 		atg := altTextGenerator{
 			headlinePrinter: func(p *message.Printer, len int) string {
@@ -127,7 +126,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		tweets = append(tweets, tweet{
 			text: wt,
 			media: []tweetMedia{
-				{r: gr, altText: altText},
+				{b: gr, altText: altText},
 			},
 		})
 	}
