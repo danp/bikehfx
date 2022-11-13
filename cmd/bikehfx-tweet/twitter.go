@@ -113,16 +113,15 @@ func (t twitterTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
 		mediaIDs = append(mediaIDs, id)
 	}
 
-	n, err := strconv.ParseInt(tw.inReplyTo, 10, 64)
-	if err != nil {
-		return "", fmt.Errorf("bad inReplyTo %v", tw.inReplyTo)
-	}
 	params := &twitter.StatusUpdateParams{
-		MediaIds:          mediaIDs,
-		InReplyToStatusID: n,
+		MediaIds: mediaIDs,
 	}
-
 	if tw.inReplyTo != "" {
+		n, err := strconv.ParseInt(tw.inReplyTo, 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("bad inReplyTo %v", tw.inReplyTo)
+		}
+		params.InReplyToStatusID = n
 		tw.text = "@" + t.screenName + " " + tw.text
 	}
 
