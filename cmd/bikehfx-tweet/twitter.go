@@ -265,6 +265,7 @@ func (m mastodonTooter) tweet(ctx context.Context, tw tweet) (string, error) {
 		Status:      tw.text,
 		MediaIDs:    mediaIDs,
 		InReplyToID: mastodon.ID(tw.inReplyTo),
+		Visibility:  mastodon.VisibilityUnlisted,
 	}
 
 	st, err := m.c.PostStatus(ctx, t)

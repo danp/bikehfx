@@ -1,13 +1,13 @@
 module github.com/danp/bikehfx
 
-go 1.20
+go 1.21
 
 require (
 	github.com/danp/counterbase v0.0.0-20221112001150-9ce3e572fb5b
 	github.com/dghubble/go-twitter v0.0.0-20201011215211-4b180d0cc78d
 	github.com/dghubble/oauth1 v0.7.0
 	github.com/google/go-cmp v0.5.9
-	github.com/mattn/go-mastodon v0.0.5
+	github.com/mattn/go-mastodon v0.0.6
 	github.com/peterbourgon/ff/v3 v3.3.0
 	golang.org/x/image v0.0.0-20210220032944-ac19c3e999fb
 	golang.org/x/text v0.3.6
