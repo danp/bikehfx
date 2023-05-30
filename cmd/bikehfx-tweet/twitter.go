@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/dghubble/go-twitter/twitter"
+	"github.com/dghubble/go-twitter/twitter" //nolint I know it's deprecated
 	"github.com/dghubble/oauth1"
 	"github.com/mattn/go-mastodon"
 )
@@ -231,6 +231,7 @@ type mastodonTooter struct {
 	c *mastodon.Client
 }
 
+// Requires read:accounts write:media write:statuses scopes.
 func newMastodonTooter(server, clientID, clientSecret, accessToken string) (mastodonTooter, error) {
 	cl := mastodon.NewClient(&mastodon.Config{
 		Server:       server,
