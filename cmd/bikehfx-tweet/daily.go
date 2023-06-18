@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"image/color"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,8 +77,17 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 			return err
 		}
 
+		ws, err := weatherSummary(ctx, dayRange.begin)
+		if err != nil {
+			log.Printf("weatherSummary: %v", err)
+		}
+
 		dt := tweetText(daySeries, records, func(p *message.Printer, sum string) string {
-			return p.Sprintf("%s #bikehfx trips counted %s", sum, dayRange.begin.Format("Mon Jan 2"))
+			m := p.Sprintf("%s #bikehfx trips counted %s", sum, dayRange.begin.Format("Mon Jan 2"))
+			if ws != "" {
+				m += "\n\n" + ws
+			}
+			return m
 		})
 
 		dayHours := dayRange.split(time.Hour)
