@@ -278,8 +278,18 @@ func newTimeRangeDuration(begin time.Time, d time.Duration) timeRange {
 	return timeRange{begin: begin, end: begin.Add(d)}
 }
 
+func (r timeRange) String() string {
+	return fmt.Sprintf("[%s, %s)", r.begin.Format(time.RFC3339), r.end.Format(time.RFC3339))
+}
+
 func (r timeRange) addDate(years, months, days int) timeRange {
 	return timeRange{begin: r.begin.AddDate(years, months, days), end: r.end.AddDate(years, months, days)}
+}
+
+func (r timeRange) startOfWeek() timeRange {
+	r.begin = r.begin.AddDate(0, 0, -int(r.begin.Weekday()))
+	r.end = r.begin.AddDate(0, 0, 7)
+	return r
 }
 
 func (r timeRange) add(d time.Duration) timeRange {

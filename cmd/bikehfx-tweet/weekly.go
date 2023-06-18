@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"flag"
+	"slices"
 	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
+	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
 
@@ -48,22 +50,49 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 
 		weekRange := newTimeRangeDate(time.Date(weekt.Year(), weekt.Month(), weekt.Day()-int(weekt.Weekday()), 0, 0, 0, 0, loc), 0, 0, 7)
 
-		counters, err := ccd.counters(ctx, weekRange)
+		weekRanges := []timeRange{weekRange}
+		weekRangeYear, weekRangeNum := weekRange.begin.ISOWeek()
+		for year := weekRangeYear - 1; year >= 2017 && len(weekRanges) < 8; year-- {
+			diff := weekRangeYear - year
+			pw := weekRange.addDate(-diff, 0, 0).startOfWeek()
+			for {
+				pwRangeYear, pwRangeNum := pw.begin.ISOWeek()
+				if pwRangeYear == year && pwRangeNum == weekRangeNum {
+					break
+				}
+				if pwRangeYear < year || pwRangeNum < weekRangeNum {
+					pw = pw.addDate(0, 0, 7)
+					continue
+				}
+				if pwRangeYear > year || pwRangeNum > weekRangeNum {
+					pw = pw.addDate(0, 0, -7)
+					continue
+				}
+			}
+			weekRanges = append(weekRanges, pw)
+		}
+
+		var weeksSeries [][]counterSeries
+		for _, wr := range weekRanges {
+			counters, err := ccd.counters(ctx, wr)
+			if err != nil {
+				return err
+			}
+
+			weekSeries, err := trq.queryCounterSeries(ctx, counters, []timeRange{wr})
+			if err != nil {
+				return err
+			}
+
+			weeksSeries = append(weeksSeries, weekSeries)
+		}
+
+		records, err := rc.check(ctx, weekRange.begin, weeksSeries[0], recordWidthWeek)
 		if err != nil {
 			return err
 		}
 
-		weekSeries, err := trq.queryCounterSeries(ctx, counters, []timeRange{weekRange})
-		if err != nil {
-			return err
-		}
-
-		records, err := rc.check(ctx, weekRange.begin, weekSeries, recordWidthWeek)
-		if err != nil {
-			return err
-		}
-
-		wt := tweetText(weekSeries, records, func(p *message.Printer, sum string) string {
+		weekTweetText := tweetText(weeksSeries[0], records, func(p *message.Printer, sum string) string {
 			return p.Sprintf("Week review:\n\n%s #bikehfx trips counted week ending %s", sum, weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
 		})
 
@@ -124,9 +153,65 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		}
 
 		tweets = append(tweets, tweet{
-			text: wt,
+			text: weekTweetText,
 			media: []tweetMedia{
 				{b: gr, altText: altText},
+			},
+		})
+
+		var graph2TRVs []timeRangeValue
+		for i, wr := range weekRanges {
+			ws := weeksSeries[i]
+			var sum int
+			for _, cs := range ws {
+				for _, s := range cs.series {
+					sum += s.val
+				}
+			}
+			graph2TRVs = append(graph2TRVs, timeRangeValue{tr: wr, val: sum})
+		}
+
+		prevWeeksTweetPrinter := message.NewPrinter(language.English)
+		prevWeeksTweetText := prevWeeksTweetPrinter.Sprintf("Previous year counts for week %d:\n\n", weekRangeNum)
+		for _, trv := range graph2TRVs {
+			prevWeeksTweetText += prevWeeksTweetPrinter.Sprintf("%s: %d\n", trv.tr.end.Format("2006"), trv.val)
+		}
+
+		slices.Reverse(graph2TRVs)
+		gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksTweetPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
+		if err != nil {
+			return err
+		}
+
+		atg2 := altTextGenerator{
+			headlinePrinter: func(p *message.Printer, len int) string {
+				return p.Sprintf("Bar chart of counted cycling trips for week %d over last %d years.", weekRangeNum, len)
+			},
+			changePrinter: func(p *message.Printer, cur int, pctChange int) string {
+				if pctChange == 0 {
+					return p.Sprintf("The most recent years's count of %d is about the same as the previous year.", cur)
+				}
+
+				var moreOrFewer string
+				if pctChange > 0 {
+					moreOrFewer = "more"
+				} else {
+					moreOrFewer = "fewer"
+					pctChange *= -1
+				}
+				return p.Sprintf("The most recent year had %d trips counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
+			},
+		}
+
+		altText2, err := atg2.text(graph2TRVs)
+		if err != nil {
+			return err
+		}
+
+		tweets = append(tweets, tweet{
+			text: prevWeeksTweetText,
+			media: []tweetMedia{
+				{b: gr2, altText: altText2},
 			},
 		})
 	}
