@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"slices"
 	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -190,7 +189,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 			prevMonthsTweetText += prevMonthsTweetPrinter.Sprintf("%s: %d\n", trv.tr.end.Format("2006"), trv.val)
 		}
 
-		slices.Reverse(graph2TRVs)
+		reverse(graph2TRVs)
 		gr2, err := timeRangeBarGraph(graph2TRVs, prevMonthsTweetPrinter.Sprintf("Total count for %s by year", monthRange.begin.Format("Jan")), func(tr timeRange) string { return tr.end.Format("2006") })
 		if err != nil {
 			return err

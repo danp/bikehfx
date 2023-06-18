@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"slices"
 	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -177,7 +176,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 			prevWeeksTweetText += prevWeeksTweetPrinter.Sprintf("%s: %d\n", trv.tr.end.Format("2006"), trv.val)
 		}
 
-		slices.Reverse(graph2TRVs)
+		reverse(graph2TRVs)
 		gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksTweetPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
 		if err != nil {
 			return err
