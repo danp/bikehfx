@@ -8,12 +8,17 @@ import (
 	"hash/crc32"
 	"image/color"
 	"log"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/danp/counterbase/directory"
 	"github.com/peterbourgon/ff/v3/ffcli"
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
+	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
@@ -45,71 +50,210 @@ func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 	}
 }
 
+type weatherer interface {
+	weather(ctx context.Context, day time.Time) (weather, error)
+}
+
+type counterSeriesV2 struct {
+	counter     directory.Counter
+	last        time.Time
+	lastNonZero time.Time
+	series      []timeRangeValue
+}
+
+type timeRangeQuerierV2 interface {
+	query(ctx context.Context, tr ...timeRange) ([]counterSeriesV2, error)
+}
+
+type dayPostGenerator struct {
+	day            time.Time
+	weatherer      weatherer
+	querier        timeRangeQuerierV2
+	recordsChecker recordsChecker
+}
+
+func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
+	dayRange := newTimeRangeDate(time.Date(g.day.Year(), g.day.Month(), g.day.Day(), 0, 0, 0, 0, g.day.Location()), 0, 0, 1)
+
+	cs, err := g.querier.query(ctx, dayRange)
+	if err != nil {
+		return nil, err
+	}
+
+	var sum int
+	for _, c := range cs {
+		for _, v := range c.series {
+			sum += v.val
+		}
+	}
+	if sum == 0 {
+		log.Printf("no trips counted on %v", g.day)
+		return nil, nil
+	}
+
+	var cs1 []counterSeries
+	for _, c := range cs {
+		if len(c.series) == 0 {
+			continue
+		}
+		cs1 = append(cs1, counterSeries{
+			counter: c.counter,
+			series:  c.series,
+		})
+	}
+	records, err := g.recordsChecker.check(ctx, g.day, cs1, recordWidthDay)
+	if err != nil {
+		return nil, err
+	}
+
+	w, err := g.weatherer.weather(ctx, g.day)
+	if err != nil {
+		log.Printf("weatherer.weather: %v", err)
+		w = weather{}
+	}
+
+	var out strings.Builder
+
+	p := message.NewPrinter(language.English)
+
+	p.Fprintf(&out, "%v%v #BikeHfx trips counted on %v\n\n", sum, recordSymbol(records["sum"]), g.day.Format("Mon Jan 2"))
+	if w.max != 0 {
+		p.Fprintf(&out, "%v/%v C", int(math.Ceil(w.max)), int(math.Floor(w.min)))
+		if w.rain > 0 {
+			raindrop := "\U0001f4a7"
+			p.Fprintf(&out, " %v %.1fmm", raindrop, w.rain)
+		}
+		if w.snow > 0 {
+			snowflake := "\u2744\ufe0f"
+			p.Fprintf(&out, " %v %.1fcm", snowflake, w.snow)
+		}
+		p.Fprintf(&out, "\n\n")
+	}
+
+	missing := make(map[string]time.Time)
+	for _, c := range cs {
+		if !c.last.Before(g.day) && !c.lastNonZero.Before(g.day) {
+			continue
+		}
+		last := c.last
+		if !c.lastNonZero.IsZero() {
+			last = c.lastNonZero
+		}
+		missing[c.counter.ID] = last
+	}
+
+	var csIndices []int
+	for i := range cs {
+		csIndices = append(csIndices, i)
+	}
+	sort.Slice(csIndices, func(i, j int) bool {
+		i, j = csIndices[i], csIndices[j]
+		_, ok1 := missing[cs[i].counter.ID]
+		_, ok2 := missing[cs[j].counter.ID]
+		if ok1 && ok2 {
+			return cs[i].counter.Name < cs[j].counter.Name
+		}
+		if ok1 {
+			return false
+		}
+		if ok2 {
+			return true
+		}
+		return cs[i].series[len(cs[i].series)-1].val > cs[j].series[len(cs[j].series)-1].val
+	})
+
+	for _, i := range csIndices {
+		c := cs[i]
+		if _, ok := missing[c.counter.ID]; ok {
+			continue
+		}
+		v := c.series[len(c.series)-1].val
+		p.Fprintf(&out, "%v%v %v\n", v, recordSymbol(records[c.counter.ID]), c.counter.Name)
+	}
+
+	recordKinds := make(map[recordKind]struct{})
+	for _, k := range records {
+		recordKinds[k] = struct{}{}
+	}
+	if len(recordKinds) > 0 {
+		keys := maps.Keys(recordKinds)
+		slices.Sort(keys)
+		p.Fprintln(&out)
+		for _, k := range keys {
+			p.Fprintln(&out, recordNote(k))
+		}
+	}
+
+	if len(missing) > 0 {
+		p.Fprintln(&out)
+		p.Fprintln(&out, "Missing (since):")
+		for _, i := range csIndices {
+			c := cs[i]
+			if m, ok := missing[c.counter.ID]; ok {
+				p.Fprintf(&out, "%v (%v)\n", c.counter.Name, m.Format("Jan 2"))
+			}
+		}
+	}
+
+	dayHours := dayRange.split(time.Hour)
+
+	hourSeries, err := g.querier.query(ctx, dayHours...)
+	if err != nil {
+		return nil, err
+	}
+	var hourCS1 []counterSeries
+	for _, c := range hourSeries {
+		if len(c.series) == 0 {
+			continue
+		}
+		hourCS1 = append(hourCS1, counterSeries{
+			counter: c.counter,
+			series:  c.series,
+		})
+	}
+
+	dg, err := dailyGraph(g.day, hourCS1)
+	if err != nil {
+		return nil, err
+	}
+
+	dat := dailyAltText(hourCS1)
+
+	media := []tweetMedia{{b: dg, altText: dat}}
+
+	return []tweet{
+		{text: out.String(), media: media},
+	}, nil
+}
+
 func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return err
 	}
 
+	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
+
 	var tweets []tweet
 	for _, day := range days {
-		dayt, err := time.Parse("20060102", day)
-		if err != nil {
-			return err
-		}
-		dayRange := newTimeRangeDate(time.Date(dayt.Year(), dayt.Month(), dayt.Day(), 0, 0, 0, 0, loc), 0, 0, 1)
-
-		counters, err := ccd.counters(ctx, dayRange)
+		dayt, err := time.ParseInLocation("20060102", day, loc)
 		if err != nil {
 			return err
 		}
 
-		daySeries, err := trq.queryCounterSeries(ctx, counters, []timeRange{dayRange})
-		if err != nil {
-			return err
-		}
-		if len(daySeries) == 0 {
-			continue
-		}
-
-		records, err := rc.check(ctx, dayRange.begin, daySeries, recordWidthDay)
-		if err != nil {
-			return err
+		g := dayPostGenerator{
+			day:            dayt,
+			weatherer:      ecWeatherer{},
+			querier:        trq2,
+			recordsChecker: rc,
 		}
 
-		ws, err := weatherSummary(ctx, dayRange.begin)
-		if err != nil {
-			log.Printf("weatherSummary: %v", err)
-		}
-
-		dt := tweetText(daySeries, records, func(p *message.Printer, sum string) string {
-			m := p.Sprintf("%s #bikehfx trips counted %s", sum, dayRange.begin.Format("Mon Jan 2"))
-			if ws != "" {
-				m += "\n\n" + ws
-			}
-			return m
-		})
-
-		dayHours := dayRange.split(time.Hour)
-
-		hourSeries, err := trq.queryCounterSeries(ctx, counters, dayHours)
+		ts, err := g.post(ctx)
 		if err != nil {
 			return err
 		}
 
-		dg, err := dailyGraph(dayRange.begin, hourSeries)
-		if err != nil {
-			return err
-		}
-
-		dat := dailyAltText(hourSeries)
-
-		media := []tweetMedia{{b: dg, altText: dat}}
-
-		tweets = append(tweets, tweet{
-			text:  dt,
-			media: media,
-		})
+		tweets = append(tweets, ts...)
 	}
 
 	_, err = twt.tweetThread(ctx, tweets)

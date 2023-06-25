@@ -79,7 +79,7 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 		}
 
 		mt := tweetText(yearSeries, records, func(p *message.Printer, sum string) string {
-			return p.Sprintf("Year review:\n\n%s #bikehfx trips counted in %s", sum, yearRange.begin.Format("2006"))
+			return p.Sprintf("Year review:\n\n%s #BikeHfx trips counted in %s", sum, yearRange.begin.Format("2006"))
 		})
 
 		graphBegin := yearRange.begin.AddDate(-7, 0, 0)

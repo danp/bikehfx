@@ -23,29 +23,13 @@ func tweetText(cs []counterSeries, records map[string]recordKind, headliner func
 
 	p := message.NewPrinter(language.English)
 
-	var recText string
-	switch records["sum"] {
-	case recordKindAllTime:
-		recText = "**"
-	case recordKindYTD:
-		recText = "*"
-	}
-	sums := p.Sprintf("%d%s", sum, recText)
+	sums := p.Sprintf("%d%s", sum, recordSymbol(records["sum"]))
 	p.Fprintln(&out, headliner(p, sums))
 	p.Fprintln(&out)
 
 	for _, ci := range csIndices {
 		s := cs[ci]
-
-		var recText string
-		switch records[s.counter.ID] {
-		case recordKindAllTime:
-			recText = "**"
-		case recordKindYTD:
-			recText = "*"
-		}
-
-		p.Fprintf(&out, "%d%s %s\n", s.series[0].val, recText, s.counter.Name)
+		p.Fprintf(&out, "%d%s %s\n", s.series[0].val, recordSymbol(records[s.counter.ID]), s.counter.Name)
 	}
 
 	recordKinds := make(map[recordKind]bool)
@@ -61,12 +45,7 @@ func tweetText(cs []counterSeries, records map[string]recordKind, headliner func
 		p.Fprintln(&out)
 	}
 	for _, rk := range recordKindKeys {
-		switch rk {
-		case recordKindAllTime:
-			p.Fprintln(&out, "** all-time record")
-		case recordKindYTD:
-			p.Fprintln(&out, "* year-to-date record")
-		}
+		p.Fprintln(&out, recordNote(rk))
 	}
 
 	return out.String()

@@ -408,6 +408,45 @@ type counterSeries struct {
 
 type timeRangeQuerier interface {
 	queryCounterSeries(ctx context.Context, counters []directory.Counter, trs []timeRange) ([]counterSeries, error)
+	last(ctx context.Context, counterID string, until time.Time) (all, nonZero time.Time, _ error)
+}
+
+type counterbaseTimeRangeQuerierV2 struct {
+	ccd cyclingCounterDirectory
+	trq timeRangeQuerier
+}
+
+func (q counterbaseTimeRangeQuerierV2) query(ctx context.Context, trs ...timeRange) ([]counterSeriesV2, error) {
+	counters, err := q.ccd.counters(ctx, timeRange{trs[0].begin, trs[len(trs)-1].end})
+	if err != nil {
+		return nil, err
+	}
+
+	cs1, err := q.trq.queryCounterSeries(ctx, counters, trs)
+	if err != nil {
+		return nil, err
+	}
+
+	var cs2 []counterSeriesV2
+	for _, counter := range counters {
+		last, lastNonZero, err := q.trq.last(ctx, counter.ID, trs[len(trs)-1].end)
+		if err != nil {
+			return nil, err
+		}
+		s2 := counterSeriesV2{
+			counter:     counter,
+			last:        last,
+			lastNonZero: lastNonZero,
+		}
+		for _, s1 := range cs1 {
+			if s1.counter.ID != counter.ID {
+				continue
+			}
+			s2.series = s1.series
+		}
+		cs2 = append(cs2, s2)
+	}
+	return cs2, nil
 }
 
 type counterbaseTimeRangeQuerier struct {
@@ -428,7 +467,6 @@ func (q counterbaseTimeRangeQuerier) queryCounterSeries(ctx context.Context, cou
 		if trvSum(trvs) == 0 {
 			continue
 		}
-
 		out = append(out, counterSeries{counter: c, series: trvs})
 	}
 
@@ -466,6 +504,33 @@ func (q counterbaseTimeRangeQuerier) query(ctx context.Context, counterID string
 	}
 
 	return trvs, nil
+}
+
+func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counterID string, until time.Time) (all, nonZero time.Time, _ error) {
+	qq := fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s' and time <= %v", counterID, until.Unix())
+	pts, err := q.querier.Query(ctx, qq)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if len(pts) == 0 {
+		return time.Time{}, time.Time{}, err
+	}
+	if len(pts) > 1 {
+		return time.Time{}, time.Time{}, fmt.Errorf("expected 1 point, got %d", len(pts))
+	}
+	all = pts[0].Time
+	qq = fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s' and time <= %v and value > 0", counterID, until.Unix())
+	pts, err = q.querier.Query(ctx, qq)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if len(pts) == 0 {
+		return time.Time{}, time.Time{}, err
+	}
+	if len(pts) > 1 {
+		return time.Time{}, time.Time{}, fmt.Errorf("expected 1 point, got %d", len(pts))
+	}
+	return all, pts[0].Time, nil
 }
 
 type cyclingCounterDirectory interface {

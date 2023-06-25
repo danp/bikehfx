@@ -136,3 +136,23 @@ func isRecordForCounters(ctx context.Context, qu Querier, counters []directory.C
 
 	return int(pts[0].Value) < val, nil
 }
+
+func recordSymbol(k recordKind) string {
+	switch k {
+	case recordKindAllTime:
+		return "**"
+	case recordKindYTD:
+		return "*"
+	}
+	return ""
+}
+
+func recordNote(k recordKind) string {
+	switch k {
+	case recordKindAllTime:
+		return "** all-time record"
+	case recordKindYTD:
+		return "* year-to-date record"
+	}
+	return ""
+}

@@ -92,7 +92,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		}
 
 		weekTweetText := tweetText(weeksSeries[0], records, func(p *message.Printer, sum string) string {
-			return p.Sprintf("Week review:\n\n%s #bikehfx trips counted week ending %s", sum, weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
+			return p.Sprintf("Week review:\n\n%s #BikeHfx trips counted week ending %s", sum, weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
 		})
 
 		graphBegin := weekRange.begin.AddDate(0, 0, -7*7)
@@ -173,7 +173,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		prevWeeksTweetPrinter := message.NewPrinter(language.English)
 		prevWeeksTweetText := prevWeeksTweetPrinter.Sprintf("Previous year counts for week %d:\n\n", weekRangeNum)
 		for _, trv := range graph2TRVs {
-			prevWeeksTweetText += prevWeeksTweetPrinter.Sprintf("%s: %d\n", trv.tr.end.Format("2006"), trv.val)
+			prevWeeksTweetText += prevWeeksTweetPrinter.Sprintf("%v: %v\n", trv.tr.end.Format("2006"), trv.val)
 		}
 
 		reverse(graph2TRVs)

@@ -91,7 +91,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 		}
 
 		monthTweetText := tweetText(monthsSeries[0], records, func(p *message.Printer, sum string) string {
-			return p.Sprintf("Month review:\n\n%s #bikehfx trips counted in %s", sum, monthRange.begin.Format("Jan"))
+			return p.Sprintf("Month review:\n\n%s #BikeHfx trips counted in %s", sum, monthRange.begin.Format("Jan"))
 		})
 
 		graphBegin := monthRange.begin.AddDate(0, -7, 0)
