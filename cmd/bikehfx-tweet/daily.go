@@ -116,7 +116,7 @@ func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
 
 	p := message.NewPrinter(language.English)
 
-	p.Fprintf(&out, "%v%v #BikeHfx trips counted on %v\n\n", sum, recordSymbol(records["sum"]), g.day.Format("Mon Jan 2"))
+	p.Fprintf(&out, "%v%v #BikeHfx trips counted %v\n\n", sum, recordSymbol(records["sum"]), g.day.Format("Mon Jan 2"))
 	if w.max != 0 {
 		p.Fprintf(&out, "%v/%v C", int(math.Ceil(w.max)), int(math.Floor(w.min)))
 		if w.rain > 0 {
