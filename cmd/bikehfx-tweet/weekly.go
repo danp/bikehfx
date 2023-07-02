@@ -5,6 +5,7 @@ import (
 	"flag"
 	"time"
 
+	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -37,14 +38,14 @@ func newWeeklyCmd(rootConfig *rootConfig) *ffcli.Command {
 func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
-		return err
+		return errutil.With(err)
 	}
 
 	var tweets []tweet
 	for _, week := range weeks {
 		weekt, err := time.Parse("20060102", week)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		weekRange := newTimeRangeDate(time.Date(weekt.Year(), weekt.Month(), weekt.Day()-int(weekt.Weekday()), 0, 0, 0, 0, loc), 0, 0, 7)
@@ -75,12 +76,12 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		for _, wr := range weekRanges {
 			counters, err := ccd.counters(ctx, wr)
 			if err != nil {
-				return err
+				return errutil.With(err)
 			}
 
 			weekSeries, err := trq.queryCounterSeries(ctx, counters, []timeRange{wr})
 			if err != nil {
-				return err
+				return errutil.With(err)
 			}
 
 			weeksSeries = append(weeksSeries, weekSeries)
@@ -88,7 +89,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 
 		records, err := rc.check(ctx, weekRange.begin, weeksSeries[0], recordWidthWeek)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		weekTweetText := tweetText(weeksSeries[0], records, func(p *message.Printer, sum string) string {
@@ -101,12 +102,12 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 
 		graphCounters, err := ccd.counters(ctx, graphRange)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		graphCountSeries, err := trq.queryCounterSeries(ctx, graphCounters, graphWeeks)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		weekCounts := make(map[time.Time]int)
@@ -123,7 +124,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 
 		gr, err := timeRangeBarGraph(graphTRVs, "Total count by week ending", func(tr timeRange) string { return tr.end.AddDate(0, 0, -1).Format("Jan 2") })
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		atg := altTextGenerator{
@@ -148,7 +149,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 
 		altText, err := atg.text(graphTRVs)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		tweets = append(tweets, tweet{
@@ -179,7 +180,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		reverse(graph2TRVs)
 		gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksTweetPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		atg2 := altTextGenerator{
@@ -204,7 +205,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 
 		altText2, err := atg2.text(graph2TRVs)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		tweets = append(tweets, tweet{
@@ -216,5 +217,5 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 	}
 
 	_, err = twt.tweetThread(ctx, tweets)
-	return err
+	return errutil.With(err)
 }

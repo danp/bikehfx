@@ -5,6 +5,7 @@ import (
 	"flag"
 	"time"
 
+	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -34,7 +35,7 @@ func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 			if *minMonth != "" {
 				mmm, err := time.Parse("200601", *minMonth)
 				if err != nil {
-					return err
+					return errutil.With(err)
 				}
 				mm = mmm
 			}
@@ -47,7 +48,7 @@ func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
-		return err
+		return errutil.With(err)
 	}
 
 	if !minMonth.IsZero() {
@@ -59,7 +60,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 	for _, month := range months {
 		montht, err := time.Parse("200601", month)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		monthRange := newTimeRangeDate(time.Date(montht.Year(), montht.Month(), 1, 0, 0, 0, 0, loc), 0, 1, 0)
@@ -74,12 +75,12 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 		for _, mr := range monthRanges {
 			counters, err := ccd.counters(ctx, mr)
 			if err != nil {
-				return err
+				return errutil.With(err)
 			}
 
 			monthSeries, err := trq.queryCounterSeries(ctx, counters, []timeRange{mr})
 			if err != nil {
-				return err
+				return errutil.With(err)
 			}
 
 			monthsSeries = append(monthsSeries, monthSeries)
@@ -87,7 +88,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 
 		records, err := rc.check(ctx, monthRange.begin, monthsSeries[0], recordWidthMonth)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		monthTweetText := tweetText(monthsSeries[0], records, func(p *message.Printer, sum string) string {
@@ -109,12 +110,12 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 
 		graphCounters, err := ccd.counters(ctx, graphCountRange)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		graphCountSeries, err := trq.queryCounterSeries(ctx, graphCounters, graphCountMonths)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		monthCounts := make(map[time.Time]int)
@@ -136,7 +137,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 
 		gr, err := timeRangeBarGraph(graphTRVs, "Total count by month", func(tr timeRange) string { return tr.begin.Format("Jan") })
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		atg := altTextGenerator{
@@ -161,7 +162,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 
 		altText, err := atg.text(graphCountTRVs)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		tweets = append(tweets, tweet{
@@ -192,7 +193,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 		reverse(graph2TRVs)
 		gr2, err := timeRangeBarGraph(graph2TRVs, prevMonthsTweetPrinter.Sprintf("Total count for %s by year", monthRange.begin.Format("Jan")), func(tr timeRange) string { return tr.end.Format("2006") })
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		atg2 := altTextGenerator{
@@ -217,7 +218,7 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 
 		altText2, err := atg2.text(graph2TRVs)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		tweets = append(tweets, tweet{
@@ -229,5 +230,5 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 	}
 
 	_, err = twt.tweetThread(ctx, tweets)
-	return err
+	return errutil.With(err)
 }

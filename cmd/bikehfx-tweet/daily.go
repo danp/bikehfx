@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/danp/counterbase/directory"
+	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -77,7 +78,7 @@ func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
 
 	cs, err := g.querier.query(ctx, dayRange)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	var sum int
@@ -103,7 +104,7 @@ func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
 	}
 	records, err := g.recordsChecker.check(ctx, g.day, cs1, recordWidthDay)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	w, err := g.weatherer.weather(ctx, g.day)
@@ -199,7 +200,7 @@ func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
 
 	hourSeries, err := g.querier.query(ctx, dayHours...)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 	var hourCS1 []counterSeries
 	for _, c := range hourSeries {
@@ -214,7 +215,7 @@ func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
 
 	dg, err := dailyGraph(g.day, hourCS1)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	dat := dailyAltText(hourCS1)
@@ -229,7 +230,7 @@ func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
 func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
-		return err
+		return errutil.With(err)
 	}
 
 	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
@@ -238,7 +239,7 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 	for _, day := range days {
 		dayt, err := time.ParseInLocation("20060102", day, loc)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		g := dayPostGenerator{
@@ -250,14 +251,14 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 
 		ts, err := g.post(ctx)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		tweets = append(tweets, ts...)
 	}
 
 	_, err = twt.tweetThread(ctx, tweets)
-	return err
+	return errutil.With(err)
 }
 
 func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
@@ -288,7 +289,7 @@ func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
 	// ---
 
 	if err := initGraph(); err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 	plotutil.DefaultColors = plotutil.DarkColors
 
@@ -337,7 +338,7 @@ func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
 
 		ln, err := plotter.NewLine(xys[earliestNonZeroHour:])
 		if err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 
 		ci := crc32.ChecksumIEEE([]byte(cn))
@@ -353,16 +354,16 @@ func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
 
 	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	var b bytes.Buffer
 	if _, err := wt.WriteTo(&b); err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	if err := padImage(&b); err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	return b.Bytes(), nil

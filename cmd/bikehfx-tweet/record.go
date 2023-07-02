@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/danp/counterbase/directory"
+	"github.com/graxinc/errutil"
 )
 
 type recordWidth int
@@ -55,7 +55,7 @@ func (r counterbaseRecordsChecker) check(ctx context.Context, before time.Time, 
 			rr := recordRanges[rk]
 			is, err := isRecordForCounters(ctx, r.qu, []directory.Counter{c.counter}, width, rr, c.series[0].val)
 			if err != nil {
-				return nil, err
+				return nil, errutil.With(err)
 			}
 			if is {
 				records[c.counter.ID] = rk
@@ -76,12 +76,12 @@ func (r counterbaseRecordsChecker) check(ctx context.Context, before time.Time, 
 
 		counters, err := r.ccd.counters(ctx, rr)
 		if err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 
 		is, err := isRecordForCounters(ctx, r.qu, counters, width, rr, csSum)
 		if err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 		if is {
 			records["sum"] = rk
@@ -107,7 +107,7 @@ func isRecordForCounters(ctx context.Context, qu Querier, counters []directory.C
 	case recordWidthYear:
 		modifiers = append(modifiers, "'start of year'")
 	default:
-		return false, fmt.Errorf("unsupported width %d", width)
+		return false, errutil.New(errutil.Tags{"width": width})
 	}
 
 	q := `select cast(strftime('%s', date(time,'unixepoch','localtime'`
@@ -128,7 +128,7 @@ func isRecordForCounters(ctx context.Context, qu Querier, counters []directory.C
 
 	pts, err := qu.Query(ctx, q)
 	if err != nil {
-		return false, err
+		return false, errutil.With(err)
 	}
 	if len(pts) == 0 {
 		return true, nil

@@ -22,6 +22,7 @@ import (
 
 	"github.com/danp/counterbase/directory"
 	"github.com/danp/counterbase/query"
+	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/image/font/opentype"
@@ -164,7 +165,7 @@ func loadDirectory(src string) (Directory, error) {
 
 	u, err := url.Parse(src)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	switch u.Scheme {
@@ -173,29 +174,29 @@ func loadDirectory(src string) (Directory, error) {
 
 		f, err := os.Open(src)
 		if err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 		defer f.Close()
 
 		if err := json.NewDecoder(f).Decode(&counters); err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 	case "http", "https":
 		resp, err := http.Get(src) //nolint:gosec
 		if err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("-directory-url: bad status %d", resp.StatusCode)
+			return nil, errutil.New(errutil.Tags{"code": resp.StatusCode})
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&counters); err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 	default:
-		return nil, fmt.Errorf("-directory-url: unsupported scheme %q", u.Scheme)
+		return nil, errutil.New(errutil.Tags{"scheme": u.Scheme})
 	}
 
 	return &fakeDirectory{C: counters}, nil
@@ -327,7 +328,7 @@ type timeRangeValue struct {
 
 func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRange) string) ([]byte, error) {
 	if err := initGraph(); err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 	plotutil.DefaultColors = plotutil.DarkColors
 
@@ -366,23 +367,23 @@ func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRan
 
 	bar, err := plotter.NewBarChart(values, vg.Points(40))
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 	p.Add(bar)
 	p.NominalX(xLabels...)
 
 	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	var b bytes.Buffer
 	if _, err := wt.WriteTo(&b); err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	if err := padImage(&b); err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	return b.Bytes(), nil
@@ -419,19 +420,19 @@ type counterbaseTimeRangeQuerierV2 struct {
 func (q counterbaseTimeRangeQuerierV2) query(ctx context.Context, trs ...timeRange) ([]counterSeriesV2, error) {
 	counters, err := q.ccd.counters(ctx, timeRange{trs[0].begin, trs[len(trs)-1].end})
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	cs1, err := q.trq.queryCounterSeries(ctx, counters, trs)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	var cs2 []counterSeriesV2
 	for _, counter := range counters {
 		last, lastNonZero, err := q.trq.last(ctx, counter.ID, trs[len(trs)-1].end)
 		if err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 		s2 := counterSeriesV2{
 			counter:     counter,
@@ -459,7 +460,7 @@ func (q counterbaseTimeRangeQuerier) queryCounterSeries(ctx context.Context, cou
 	for _, c := range counters {
 		trvs, err := q.query(ctx, c.ID, trs)
 		if err != nil {
-			return nil, err
+			return nil, errutil.With(err)
 		}
 		if len(trvs) == 0 {
 			continue
@@ -484,11 +485,11 @@ func (q counterbaseTimeRangeQuerier) query(ctx context.Context, counterID string
 	qq := fmt.Sprintf("select %s as time, sum(value) from counter_data where counter_id='%s' and time >= %d and time < %d group by 1", caseWhen, counterID, trs[0].begin.Unix(), trs[len(trs)-1].end.Unix())
 	pts, err := q.querier.Query(ctx, qq)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	if len(pts) == 0 {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 
 	var trvs []timeRangeValue
@@ -510,25 +511,25 @@ func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counterID string,
 	qq := fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s' and time <= %v", counterID, until.Unix())
 	pts, err := q.querier.Query(ctx, qq)
 	if err != nil {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, time.Time{}, errutil.With(err)
 	}
 	if len(pts) == 0 {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, time.Time{}, errutil.With(err)
 	}
 	if len(pts) > 1 {
-		return time.Time{}, time.Time{}, fmt.Errorf("expected 1 point, got %d", len(pts))
+		return time.Time{}, time.Time{}, errutil.New(errutil.Tags{"points": len(pts)})
 	}
 	all = pts[0].Time
 	qq = fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s' and time <= %v and value > 0", counterID, until.Unix())
 	pts, err = q.querier.Query(ctx, qq)
 	if err != nil {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, time.Time{}, errutil.With(err)
 	}
 	if len(pts) == 0 {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, time.Time{}, errutil.With(err)
 	}
 	if len(pts) > 1 {
-		return time.Time{}, time.Time{}, fmt.Errorf("expected 1 point, got %d", len(pts))
+		return time.Time{}, time.Time{}, errutil.New(errutil.Tags{"points": len(pts)})
 	}
 	return all, pts[0].Time, nil
 }
@@ -544,7 +545,7 @@ type cyclingeCounterDirectoryWrapper struct {
 func (d cyclingeCounterDirectoryWrapper) counters(ctx context.Context, inService timeRange) ([]directory.Counter, error) {
 	counters, err := d.dir.Counters(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errutil.With(err)
 	}
 	var cyclingCounters []directory.Counter
 	for _, c := range counters {
@@ -581,7 +582,7 @@ func (d cyclingeCounterDirectoryWrapper) counters(ctx context.Context, inService
 func padImage(b *bytes.Buffer) error {
 	img, _, err := image.Decode(b)
 	if err != nil {
-		return err
+		return errutil.With(err)
 	}
 
 	bnds := img.Bounds()

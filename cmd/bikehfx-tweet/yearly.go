@@ -5,6 +5,7 @@ import (
 	"flag"
 	"time"
 
+	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/text/message"
 )
@@ -33,7 +34,7 @@ func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 			if *minYear != "" {
 				mmm, err := time.Parse("2006", *minYear)
 				if err != nil {
-					return err
+					return errutil.With(err)
 				}
 				mm = mmm
 			}
@@ -46,7 +47,7 @@ func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
-		return err
+		return errutil.With(err)
 	}
 
 	if !minYear.IsZero() {
@@ -58,24 +59,24 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 	for _, year := range years {
 		yeart, err := time.Parse("2006", year)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		yearRange := newTimeRangeDate(time.Date(yeart.Year(), 1, 1, 0, 0, 0, 0, loc), 1, 0, 0)
 
 		counters, err := ccd.counters(ctx, yearRange)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		yearSeries, err := trq.queryCounterSeries(ctx, counters, []timeRange{yearRange})
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		records, err := rc.check(ctx, yearRange.begin, yearSeries, recordWidthYear)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		mt := tweetText(yearSeries, records, func(p *message.Printer, sum string) string {
@@ -97,12 +98,12 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 
 		graphCounters, err := ccd.counters(ctx, graphCountRange)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		graphCountSeries, err := trq.queryCounterSeries(ctx, graphCounters, graphCountYears)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		yearCounts := make(map[time.Time]int)
@@ -124,7 +125,7 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 
 		gr, err := timeRangeBarGraph(graphTRVs, "Total count by year", func(tr timeRange) string { return tr.begin.Format("2006") })
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		atg := altTextGenerator{
@@ -149,7 +150,7 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 
 		altText, err := atg.text(graphCountTRVs)
 		if err != nil {
-			return err
+			return errutil.With(err)
 		}
 
 		tweets = append(tweets, tweet{
@@ -161,5 +162,5 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 	}
 
 	_, err = twt.tweetThread(ctx, tweets)
-	return err
+	return errutil.With(err)
 }
