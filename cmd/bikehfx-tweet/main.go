@@ -74,9 +74,10 @@ func main() {
 		if rootCfg.twitterAppSecret != "" {
 			tw, err := newTwitterTweeter(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+			} else {
+				mtt = append(mtt, tweetThreader{t: tw, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
 			}
-			mtt = append(mtt, tweetThreader{t: tw, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
 		}
 
 		if rootCfg.mastodonClientID != "" {
@@ -86,10 +87,14 @@ func main() {
 
 			mt, err := newMastodonTooter(rootCfg.mastodonServer, rootCfg.mastodonClientID, rootCfg.mastodonClientSecret, rootCfg.mastodonAccessToken)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+			} else {
+				mtt = append(mtt, tweetThreader{t: mt, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
 			}
+		}
 
-			mtt = append(mtt, tweetThreader{t: mt, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
+		if len(mtt) == 0 {
+			log.Fatal("no tweet threaders configured")
 		}
 
 		tt = mtt

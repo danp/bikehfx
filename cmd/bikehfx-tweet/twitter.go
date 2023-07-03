@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -54,13 +55,18 @@ func (t tweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]string, 
 type multiTweetThreader []tweetThreader
 
 func (m multiTweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]string, error) {
+	var errs []error
 	var ids []string
 	for _, t := range m {
 		is, err := t.tweetThread(ctx, tws)
 		if err != nil {
-			return nil, errutil.With(err)
+			errs = append(errs, errutil.With(err))
+			continue
 		}
 		ids = append(ids, is...)
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return ids, nil
 }
