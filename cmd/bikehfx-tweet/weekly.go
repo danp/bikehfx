@@ -216,6 +216,8 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		})
 	}
 
-	_, err = twt.tweetThread(ctx, tweets)
-	return errutil.With(err)
+	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+		return errutil.With(err)
+	}
+	return nil
 }

@@ -161,6 +161,8 @@ func yearlyExec(ctx context.Context, years []string, minYear time.Time, ccd cycl
 		})
 	}
 
-	_, err = twt.tweetThread(ctx, tweets)
-	return errutil.With(err)
+	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+		return errutil.With(err)
+	}
+	return nil
 }

@@ -257,8 +257,10 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 		tweets = append(tweets, ts...)
 	}
 
-	_, err = twt.tweetThread(ctx, tweets)
-	return errutil.With(err)
+	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+		return errutil.With(err)
+	}
+	return nil
 }
 
 func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {

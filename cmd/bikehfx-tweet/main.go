@@ -593,7 +593,10 @@ func padImage(b *bytes.Buffer) error {
 	draw.Draw(out, img.Bounds(), img, outRect.Min.Add(image.Pt(padding, padding)), draw.Over)
 
 	b.Reset()
-	return png.Encode(b, out)
+	if err := png.Encode(b, out); err != nil {
+		return errutil.With(err)
+	}
+	return nil
 }
 
 func trvSum(trvs []timeRangeValue) int {

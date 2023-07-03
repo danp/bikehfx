@@ -229,6 +229,8 @@ func monthlyExec(ctx context.Context, months []string, minMonth time.Time, ccd c
 		})
 	}
 
-	_, err = twt.tweetThread(ctx, tweets)
-	return errutil.With(err)
+	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+		return errutil.With(err)
+	}
+	return nil
 }
