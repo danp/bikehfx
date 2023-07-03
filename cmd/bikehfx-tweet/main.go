@@ -494,7 +494,7 @@ func (q counterbaseTimeRangeQuerier) query(ctx context.Context, counterID string
 	}
 
 	if len(pts) == 0 {
-		return nil, errutil.With(err)
+		return nil, nil
 	}
 
 	var trvs []timeRangeValue
@@ -519,7 +519,7 @@ func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counterID string,
 		return time.Time{}, time.Time{}, errutil.With(err)
 	}
 	if len(pts) == 0 {
-		return time.Time{}, time.Time{}, errutil.With(err)
+		return time.Time{}, time.Time{}, nil
 	}
 	if len(pts) > 1 {
 		return time.Time{}, time.Time{}, errutil.New(errutil.Tags{"points": len(pts)})
@@ -531,7 +531,7 @@ func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counterID string,
 		return time.Time{}, time.Time{}, errutil.With(err)
 	}
 	if len(pts) == 0 {
-		return time.Time{}, time.Time{}, errutil.With(err)
+		return all, time.Time{}, nil
 	}
 	if len(pts) > 1 {
 		return time.Time{}, time.Time{}, errutil.New(errutil.Tags{"points": len(pts)})
