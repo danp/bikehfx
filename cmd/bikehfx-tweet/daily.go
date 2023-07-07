@@ -187,7 +187,7 @@ func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
 
 	if len(missing) > 0 {
 		p.Fprintln(&out)
-		p.Fprintln(&out, "Missing (since):")
+		p.Fprintln(&out, "Missing (last):")
 		for _, i := range csIndices {
 			c := cs[i]
 			if m, ok := missing[c.counter.ID]; ok {
