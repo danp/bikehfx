@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +19,6 @@ import (
 	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 	"gonum.org/v1/plot"
@@ -45,186 +45,9 @@ func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 			if len(days) == 0 {
 				days = []string{*day}
 			}
-
 			return dailyExec(ctx, days, rootConfig.ccd, rootConfig.trq, rootConfig.rc, rootConfig.twt)
 		},
 	}
-}
-
-type weatherer interface {
-	weather(ctx context.Context, day time.Time) (weather, error)
-}
-
-type counterSeriesV2 struct {
-	counter     directory.Counter
-	last        time.Time
-	lastNonZero time.Time
-	series      []timeRangeValue
-}
-
-type timeRangeQuerierV2 interface {
-	query(ctx context.Context, tr ...timeRange) ([]counterSeriesV2, error)
-}
-
-type dayPostGenerator struct {
-	day            time.Time
-	weatherer      weatherer
-	querier        timeRangeQuerierV2
-	recordsChecker recordsChecker
-}
-
-func (g dayPostGenerator) post(ctx context.Context) ([]tweet, error) {
-	dayRange := newTimeRangeDate(time.Date(g.day.Year(), g.day.Month(), g.day.Day(), 0, 0, 0, 0, g.day.Location()), 0, 0, 1)
-
-	cs, err := g.querier.query(ctx, dayRange)
-	if err != nil {
-		return nil, errutil.With(err)
-	}
-
-	var sum int
-	for _, c := range cs {
-		for _, v := range c.series {
-			sum += v.val
-		}
-	}
-	if sum == 0 {
-		log.Printf("no trips counted on %v", g.day)
-		return nil, nil
-	}
-
-	var cs1 []counterSeries
-	for _, c := range cs {
-		if len(c.series) == 0 {
-			continue
-		}
-		cs1 = append(cs1, counterSeries{
-			counter: c.counter,
-			series:  c.series,
-		})
-	}
-	records, err := g.recordsChecker.check(ctx, g.day, cs1, recordWidthDay)
-	if err != nil {
-		return nil, errutil.With(err)
-	}
-
-	w, err := g.weatherer.weather(ctx, g.day)
-	if err != nil {
-		log.Printf("weatherer.weather: %v", err)
-		w = weather{}
-	}
-
-	var out strings.Builder
-
-	p := message.NewPrinter(language.English)
-
-	p.Fprintf(&out, "%v%v #BikeHfx trips counted %v\n\n", sum, recordSymbol(records["sum"]), g.day.Format("Mon Jan 2"))
-	if w.max != 0 {
-		p.Fprintf(&out, "%v/%v C", int(math.Ceil(w.max)), int(math.Floor(w.min)))
-		if w.rain > 0 {
-			raindrop := "\U0001f4a7"
-			p.Fprintf(&out, " %v %.1fmm", raindrop, w.rain)
-		}
-		if w.snow > 0 {
-			snowflake := "\u2744\ufe0f"
-			p.Fprintf(&out, " %v %.1fcm", snowflake, w.snow)
-		}
-		p.Fprintf(&out, "\n\n")
-	}
-
-	missing := make(map[string]time.Time)
-	for _, c := range cs {
-		if !c.last.Before(g.day) && !c.lastNonZero.Before(g.day) {
-			continue
-		}
-		last := c.last
-		if !c.lastNonZero.IsZero() {
-			last = c.lastNonZero
-		}
-		missing[c.counter.ID] = last
-	}
-
-	var csIndices []int
-	for i := range cs {
-		csIndices = append(csIndices, i)
-	}
-	sort.Slice(csIndices, func(i, j int) bool {
-		i, j = csIndices[i], csIndices[j]
-		_, ok1 := missing[cs[i].counter.ID]
-		_, ok2 := missing[cs[j].counter.ID]
-		if ok1 && ok2 {
-			return cs[i].counter.Name < cs[j].counter.Name
-		}
-		if ok1 {
-			return false
-		}
-		if ok2 {
-			return true
-		}
-		return cs[i].series[len(cs[i].series)-1].val > cs[j].series[len(cs[j].series)-1].val
-	})
-
-	for _, i := range csIndices {
-		c := cs[i]
-		if _, ok := missing[c.counter.ID]; ok {
-			continue
-		}
-		v := c.series[len(c.series)-1].val
-		p.Fprintf(&out, "%v%v %v\n", v, recordSymbol(records[c.counter.ID]), c.counter.Name)
-	}
-
-	recordKinds := make(map[recordKind]struct{})
-	for _, k := range records {
-		recordKinds[k] = struct{}{}
-	}
-	if len(recordKinds) > 0 {
-		keys := maps.Keys(recordKinds)
-		slices.Sort(keys)
-		p.Fprintln(&out)
-		for _, k := range keys {
-			p.Fprintln(&out, recordNote(k))
-		}
-	}
-
-	if len(missing) > 0 {
-		p.Fprintln(&out)
-		p.Fprintln(&out, "Missing (last):")
-		for _, i := range csIndices {
-			c := cs[i]
-			if m, ok := missing[c.counter.ID]; ok {
-				p.Fprintf(&out, "%v (%v)\n", c.counter.Name, m.Format("Jan 2"))
-			}
-		}
-	}
-
-	dayHours := dayRange.split(time.Hour)
-
-	hourSeries, err := g.querier.query(ctx, dayHours...)
-	if err != nil {
-		return nil, errutil.With(err)
-	}
-	var hourCS1 []counterSeries
-	for _, c := range hourSeries {
-		if len(c.series) == 0 {
-			continue
-		}
-		hourCS1 = append(hourCS1, counterSeries{
-			counter: c.counter,
-			series:  c.series,
-		})
-	}
-
-	dg, err := dailyGraph(g.day, hourCS1)
-	if err != nil {
-		return nil, errutil.With(err)
-	}
-
-	dat := dailyAltText(hourCS1)
-
-	media := []tweetMedia{{b: dg, altText: dat}}
-
-	return []tweet{
-		{text: out.String(), media: media},
-	}, nil
 }
 
 func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
@@ -242,14 +65,7 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 			return errutil.With(err)
 		}
 
-		g := dayPostGenerator{
-			day:            dayt,
-			weatherer:      ecWeatherer{},
-			querier:        trq2,
-			recordsChecker: rc,
-		}
-
-		ts, err := g.post(ctx)
+		ts, err := dayPost(ctx, dayt, trq2, ecWeatherer{}, rc, pngDayGrapher{})
 		if err != nil {
 			return errutil.With(err)
 		}
@@ -263,7 +79,167 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 	return nil
 }
 
-func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
+type weatherer interface {
+	weather(ctx context.Context, day time.Time) (weather, error)
+}
+
+type dayGrapher interface {
+	graph(ctx context.Context, day time.Time, cs []counterSeriesV2) (_ []byte, altText string, _ error)
+}
+
+type counterSeriesV2 struct {
+	counter     directory.Counter
+	last        time.Time
+	lastNonZero time.Time
+	series      []timeRangeValue
+}
+
+type timeRangeQuerierV2 interface {
+	query(ctx context.Context, tr ...timeRange) ([]counterSeriesV2, error)
+}
+
+func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, weatherer weatherer, recordsChecker recordsChecker, grapher dayGrapher) ([]tweet, error) {
+	dayRange := newTimeRangeDate(time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location()), 0, 0, 1)
+
+	cs, err := querier.query(ctx, dayRange)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	var anyTrips bool
+	for _, c := range cs {
+		for _, v := range c.series {
+			if v.val > 0 {
+				anyTrips = true
+				break
+			}
+		}
+	}
+	if !anyTrips {
+		log.Printf("no trips counted on %v", day)
+		return nil, nil
+	}
+
+	var cs1 []counterSeries
+	for _, c := range cs {
+		if len(c.series) == 0 {
+			continue
+		}
+		cs1 = append(cs1, counterSeries{
+			counter: c.counter,
+			series:  c.series,
+		})
+	}
+	records, err := recordsChecker.check(ctx, day, cs1, recordWidthDay)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	w, err := weatherer.weather(ctx, day)
+	if err != nil {
+		log.Printf("weatherer.weather: %v", err)
+		w = weather{}
+	}
+
+	text := dayPostText(day, w, cs, records)
+
+	dayHours := dayRange.split(time.Hour)
+	hourSeries, err := querier.query(ctx, dayHours...)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	dg, dat, err := grapher.graph(ctx, day, hourSeries)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	media := []tweetMedia{{b: dg, altText: dat}}
+
+	return []tweet{
+		{text: text, media: media},
+	}, nil
+}
+
+func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[string]recordKind) string {
+	var out strings.Builder
+
+	p := message.NewPrinter(language.English)
+
+	var sum int
+	var presentIndices, missingIndices []int
+	for i, c := range cs {
+		for _, v := range c.series {
+			sum += v.val
+		}
+		if !c.last.Before(day) && !c.lastNonZero.Before(day) {
+			presentIndices = append(presentIndices, i)
+			continue
+		}
+		missingIndices = append(missingIndices, i)
+	}
+
+	p.Fprintf(&out, "%v%v #BikeHfx trips counted %v\n\n", sum, recordSymbol(records["sum"]), day.Format("Mon Jan 2"))
+	if w.max != 0 {
+		p.Fprintf(&out, "%v/%v C", int(math.Ceil(w.max)), int(math.Floor(w.min)))
+		if w.rain > 0 {
+			raindrop := "\U0001f4a7"
+			p.Fprintf(&out, " %v %.1fmm", raindrop, w.rain)
+		}
+		if w.snow > 0 {
+			snowflake := "\u2744\ufe0f"
+			p.Fprintf(&out, " %v %.1fcm", snowflake, w.snow)
+		}
+		p.Fprintf(&out, "\n\n")
+	}
+
+	sort.Slice(presentIndices, func(i, j int) bool {
+		i, j = presentIndices[i], presentIndices[j]
+		return cs[i].counter.Name < cs[j].counter.Name
+	})
+	for _, i := range presentIndices {
+		c := cs[i]
+		v := c.series[len(c.series)-1].val
+		p.Fprintf(&out, "%v%v %v\n", v, recordSymbol(records[c.counter.ID]), c.counter.Name)
+	}
+
+	recordKinds := make(map[recordKind]struct{})
+	for _, k := range records {
+		recordKinds[k] = struct{}{}
+	}
+	if len(recordKinds) > 0 {
+		keys := maps.Keys(recordKinds)
+		slices.Sort(keys)
+		p.Fprintln(&out)
+		for _, k := range keys {
+			p.Fprintln(&out, recordNote(k))
+		}
+	}
+
+	if len(missingIndices) > 0 {
+		sort.Slice(missingIndices, func(i, j int) bool {
+			i, j = missingIndices[i], missingIndices[j]
+			return cs[i].counter.Name < cs[j].counter.Name
+		})
+
+		p.Fprintln(&out)
+		p.Fprintln(&out, "Missing (last):")
+		for _, i := range missingIndices {
+			c := cs[i]
+			last := c.last
+			if !c.lastNonZero.IsZero() {
+				last = c.lastNonZero
+			}
+			p.Fprintf(&out, "%v (%v)\n", c.counter.Name, last.Format("Jan 2"))
+		}
+	}
+
+	return strings.TrimSpace(out.String())
+}
+
+type pngDayGrapher struct{}
+
+func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSeriesV2) ([]byte, string, error) {
 	counterXYs := make(map[string]plotter.XYs)
 
 	earliestNonZeroHour := 24
@@ -291,9 +267,8 @@ func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
 	// ---
 
 	if err := initGraph(); err != nil {
-		return nil, errutil.With(err)
+		return nil, "", errutil.With(err)
 	}
-	plotutil.DefaultColors = plotutil.DarkColors
 
 	p := plot.New()
 
@@ -340,7 +315,7 @@ func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
 
 		ln, err := plotter.NewLine(xys[earliestNonZeroHour:])
 		if err != nil {
-			return nil, errutil.With(err)
+			return nil, "", errutil.With(err)
 		}
 
 		ci := crc32.ChecksumIEEE([]byte(cn))
@@ -356,22 +331,22 @@ func dailyGraph(day time.Time, cs []counterSeries) ([]byte, error) {
 
 	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
 	if err != nil {
-		return nil, errutil.With(err)
+		return nil, "", errutil.With(err)
 	}
 
 	var b bytes.Buffer
 	if _, err := wt.WriteTo(&b); err != nil {
-		return nil, errutil.With(err)
+		return nil, "", errutil.With(err)
 	}
 
 	if err := padImage(&b); err != nil {
-		return nil, errutil.With(err)
+		return nil, "", errutil.With(err)
 	}
 
-	return b.Bytes(), nil
+	return b.Bytes(), dailyAltText(cs), nil
 }
 
-func dailyAltText(cs []counterSeries) string {
+func dailyAltText(cs []counterSeriesV2) string {
 	if len(cs) == 0 {
 		return ""
 	}

@@ -1,0 +1,13 @@
+579** #BikeHfx trips counted Fri Jul 21
+
+31/20 C 💧 1.2mm ❄️ 2.3cm
+
+123** Apple
+456* Banana
+
+** all-time record
+* year-to-date record
+
+Missing (last):
+Coconut (Jul 28)
+Dragon Fruit (Jun 21)

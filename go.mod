@@ -8,9 +8,11 @@ require (
 	github.com/dimchansky/utfbom v1.1.1
 	github.com/google/go-cmp v0.5.9
 	github.com/graxinc/errutil v0.0.0-20230615185726-b495a08a0537
+	github.com/hexops/gotextdiff v1.0.3
+	github.com/hexops/valast v1.4.4
 	github.com/mattn/go-mastodon v0.0.6
 	github.com/peterbourgon/ff/v3 v3.3.1
-	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
+	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
 	golang.org/x/image v0.7.0
 	golang.org/x/text v0.9.0
 	gonum.org/v1/plot v0.13.0
@@ -27,4 +29,8 @@ require (
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tomnomnom/linkheader v0.0.0-20180905144013-02ca5825eb80 // indirect
+	golang.org/x/mod v0.12.0 // indirect
+	golang.org/x/sys v0.11.0 // indirect
+	golang.org/x/tools v0.12.1-0.20230815132531-74c255bcf846 // indirect
+	mvdan.cc/gofumpt v0.5.0 // indirect
 )

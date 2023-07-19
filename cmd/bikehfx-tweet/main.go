@@ -247,6 +247,7 @@ func initGraph() error {
 		})
 		plot.DefaultFont = arial
 		plotter.DefaultFont = arial
+		plotutil.DefaultColors = plotutil.DarkColors
 	})
 	return initGraphErr
 }
@@ -335,7 +336,6 @@ func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRan
 	if err := initGraph(); err != nil {
 		return nil, errutil.With(err)
 	}
-	plotutil.DefaultColors = plotutil.DarkColors
 
 	p := plot.New()
 
