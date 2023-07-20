@@ -10,10 +10,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 
-	"github.com/dghubble/go-twitter/twitter" //nolint I know it's deprecated
 	"github.com/dghubble/oauth1"
 	"github.com/graxinc/errutil"
 	"github.com/mattn/go-mastodon"
@@ -72,30 +70,39 @@ func (m multiTweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]str
 }
 
 type twitterTweeter struct {
-	tc         *twitter.Client
-	hc         *http.Client
-	screenName string
+	hc       *http.Client
+	username string
 }
 
 func newTwitterTweeter(consumerKey, consumerSecret, appToken, appSecret string) (twitterTweeter, error) {
 	oaConfig := oauth1.NewConfig(consumerKey, consumerSecret)
 	oaToken := oauth1.NewToken(appToken, appSecret)
-	cl := oaConfig.Client(oauth1.NoContext, oaToken)
-	twc := twitter.NewClient(cl)
+	cl := oaConfig.Client(context.Background(), oaToken)
 
-	currentUser, _, err := twc.Accounts.VerifyCredentials(&twitter.AccountVerifyParams{
-		IncludeEntities: twitter.Bool(false),
-		SkipStatus:      twitter.Bool(true),
-	})
+	currentUser, err := currentTwitterUser(cl)
 	if err != nil {
 		return twitterTweeter{}, errutil.With(err)
 	}
 
-	return twitterTweeter{
-		tc:         twc,
-		hc:         cl,
-		screenName: currentUser.ScreenName,
-	}, nil
+	return twitterTweeter{hc: cl, username: currentUser}, nil
+}
+
+func currentTwitterUser(cl *http.Client) (string, error) {
+	resp, err := cl.Get("https://api.twitter.com/2/users/me")
+	if err != nil {
+		return "", errutil.With(err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Data struct {
+			Username string
+		}
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", errutil.With(err)
+	}
+	return body.Data.Username, nil
 }
 
 type tweetMedia struct {
@@ -111,7 +118,7 @@ type tweet struct {
 }
 
 func (t twitterTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
-	var mediaIDs []int64
+	var mediaIDs []string
 	for _, m := range tw.media {
 		id, err := t.uploadMedia(m)
 		if err != nil {
@@ -120,55 +127,39 @@ func (t twitterTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
 		mediaIDs = append(mediaIDs, id)
 	}
 
-	params := &twitter.StatusUpdateParams{
-		MediaIds: mediaIDs,
+	type Reply struct {
+		ID string `json:"in_reply_to_tweet_id"`
 	}
+	type Media struct {
+		IDs []string `json:"media_ids"`
+	}
+	var reqb struct {
+		Text  string `json:"text"`
+		Reply *Reply `json:"reply,omitempty"`
+		Media *Media `json:"media,omitempty"`
+	}
+	reqb.Text = tw.text
 	if tw.inReplyTo != "" {
-		n, err := strconv.ParseInt(tw.inReplyTo, 10, 64)
-		if err != nil {
-			return "", errutil.With(err)
-		}
-		params.InReplyToStatusID = n
-		tw.text = "@" + t.screenName + " " + tw.text
+		reqb.Reply = &Reply{ID: tw.inReplyTo}
+	}
+	if len(mediaIDs) > 0 {
+		reqb.Media = &Media{IDs: mediaIDs}
 	}
 
-	res, _, err := t.tc.Statuses.Update(tw.text, params)
+	b, err := json.Marshal(reqb)
 	if err != nil {
 		return "", errutil.With(err)
 	}
-	return fmt.Sprint(res.ID), nil
-}
 
-func (t twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-
-	fw, err := w.CreateFormField("media")
+	resp, err := t.hc.Post("https://api.twitter.com/2/tweets", "application/json", bytes.NewReader(b))
 	if err != nil {
-		return 0, errutil.With(err)
-	}
-	if _, err := fw.Write(med.b); err != nil {
-		return 0, errutil.With(err)
-	}
-	if err := w.Close(); err != nil {
-		return 0, errutil.With(err)
-	}
-
-	req, err := http.NewRequest("POST", "https://upload.twitter.com/1.1/media/upload.json", &b)
-	if err != nil {
-		return 0, errutil.With(err)
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-
-	resp, err := t.hc.Do(req)
-	if err != nil {
-		return 0, errutil.With(err)
+		return "", errutil.With(err)
 	}
 	defer resp.Body.Close()
 
 	rb, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, errutil.With(err)
+		return "", errutil.With(err)
 	}
 
 	if resp.StatusCode/100 != 2 {
@@ -177,14 +168,66 @@ func (t twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
 			bs = bs[:200]
 		}
 
-		return 0, errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
+		return "", errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
+	}
+
+	var respb struct {
+		Data struct {
+			ID string
+		}
+	}
+	if err := json.Unmarshal(rb, &respb); err != nil {
+		return "", errutil.With(err)
+	}
+	return respb.Data.ID, nil
+}
+
+func (t twitterTweeter) uploadMedia(med tweetMedia) (string, error) {
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+
+	fw, err := w.CreateFormField("media")
+	if err != nil {
+		return "", errutil.With(err)
+	}
+	if _, err := fw.Write(med.b); err != nil {
+		return "", errutil.With(err)
+	}
+	if err := w.Close(); err != nil {
+		return "", errutil.With(err)
+	}
+
+	req, err := http.NewRequest("POST", "https://upload.twitter.com/1.1/media/upload.json", &b)
+	if err != nil {
+		return "", errutil.With(err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := t.hc.Do(req)
+	if err != nil {
+		return "", errutil.With(err)
+	}
+	defer resp.Body.Close()
+
+	rb, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", errutil.With(err)
+	}
+
+	if resp.StatusCode/100 != 2 {
+		bs := string(rb)
+		if len(bs) > 200 {
+			bs = bs[:200]
+		}
+
+		return "", errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
 	}
 
 	var mresp struct {
-		MediaID int64 `json:"media_id"`
+		MediaID string `json:"media_id_string"`
 	}
 	if err := json.Unmarshal(rb, &mresp); err != nil {
-		return 0, errutil.With(err)
+		return "", errutil.With(err)
 	}
 
 	if med.altText == "" {
@@ -197,29 +240,29 @@ func (t twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
 			Text string `json:"text"`
 		} `json:"alt_text"`
 	}
-	reqb.MediaID = strconv.FormatInt(mresp.MediaID, 10)
+	reqb.MediaID = mresp.MediaID
 	reqb.AltText.Text = med.altText
 
 	mrb, err := json.Marshal(reqb)
 	if err != nil {
-		return 0, errutil.With(err)
+		return "", errutil.With(err)
 	}
 
 	req, err = http.NewRequest("POST", "https://upload.twitter.com/1.1/media/metadata/create.json", bytes.NewReader(mrb))
 	if err != nil {
-		return 0, errutil.With(err)
+		return "", errutil.With(err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
 
 	resp, err = t.hc.Do(req)
 	if err != nil {
-		return 0, errutil.With(err)
+		return "", errutil.With(err)
 	}
 	defer resp.Body.Close()
 
 	rb, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, errutil.With(err)
+		return "", errutil.With(err)
 	}
 
 	if resp.StatusCode/100 != 2 {
@@ -228,7 +271,7 @@ func (t twitterTweeter) uploadMedia(med tweetMedia) (int64, error) {
 			bs = bs[:200]
 		}
 
-		return 0, errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
+		return "", errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
 	}
 
 	return mresp.MediaID, nil
