@@ -284,6 +284,6 @@ func update() bool {
 }
 
 func diff(got, want string) string {
-	edits := myers.ComputeEdits(span.URIFromPath("out"), string(want), got)
-	return fmt.Sprint(gotextdiff.ToUnified("want", "got", string(want), edits))
+	edits := myers.ComputeEdits(span.URIFromPath("out"), want, got)
+	return fmt.Sprint(gotextdiff.ToUnified("want", "got", want, edits))
 }
