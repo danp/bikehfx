@@ -250,13 +250,13 @@ func expect(t testing.TB, filename string, got any) {
 	}
 
 	if update() {
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}
 		if save == nil {
 			save = []byte(gotString)
 		}
-		if err := os.WriteFile(path, save, 0644); err != nil {
+		if err := os.WriteFile(path, save, 0600); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -270,6 +270,7 @@ func expect(t testing.TB, filename string, got any) {
 	}
 }
 
+//nolint:gochecknoinits
 func init() {
 	// For compatibility with other packages that also define an -update parameter, only define the
 	// flag if it's not already defined.
