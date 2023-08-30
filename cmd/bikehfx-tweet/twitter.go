@@ -368,6 +368,14 @@ func (b blueskyPoster) tweet(ctx context.Context, tw tweet) (string, error) {
 		Text:      tw.text,
 	}
 
+	if tw.inReplyTo != "" {
+		var ref atproto.RepoStrongRef
+		if err := json.Unmarshal([]byte(tw.inReplyTo), &ref); err != nil {
+			return "", errutil.With(err)
+		}
+		post.Reply = &bsky.FeedPost_ReplyRef{Parent: &ref, Root: &ref}
+	}
+
 	if len(tw.media) > 0 {
 		post.Embed = &bsky.FeedPost_Embed{EmbedImages: &bsky.EmbedImages{}}
 	}
