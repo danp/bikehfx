@@ -11,7 +11,13 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
+	"github.com/bluesky-social/indigo/api/atproto"
+	"github.com/bluesky-social/indigo/api/bsky"
+	lexutil "github.com/bluesky-social/indigo/lex/util"
+	"github.com/bluesky-social/indigo/util"
+	"github.com/bluesky-social/indigo/xrpc"
 	"github.com/dghubble/oauth1"
 	"github.com/graxinc/errutil"
 	"github.com/mattn/go-mastodon"
@@ -325,6 +331,80 @@ func (m mastodonTooter) tweet(ctx context.Context, tw tweet) (string, error) {
 	}
 
 	return fmt.Sprint(st.ID), nil
+}
+
+type blueskyPoster struct {
+	client *xrpc.Client
+}
+
+func newBlueskyPoster(clientHost, handle, password string) (blueskyPoster, error) {
+	ctx := context.Background()
+
+	xrpcc := &xrpc.Client{
+		Client: util.RobustHTTPClient(),
+		Host:   clientHost,
+		Auth:   &xrpc.AuthInfo{Handle: handle},
+	}
+
+	auth, err := atproto.ServerCreateSession(ctx, xrpcc, &atproto.ServerCreateSession_Input{
+		Identifier: xrpcc.Auth.Handle,
+		Password:   password,
+	})
+	if err != nil {
+		return blueskyPoster{}, errutil.With(err)
+	}
+
+	xrpcc.Auth.AccessJwt = auth.AccessJwt
+	xrpcc.Auth.RefreshJwt = auth.RefreshJwt
+	xrpcc.Auth.Did = auth.Did
+	xrpcc.Auth.Handle = auth.Handle
+
+	return blueskyPoster{client: xrpcc}, nil
+}
+
+func (b blueskyPoster) tweet(ctx context.Context, tw tweet) (string, error) {
+	post := &bsky.FeedPost{
+		CreatedAt: time.Now().Format(time.RFC3339),
+		Text:      tw.text,
+	}
+
+	if len(tw.media) > 0 {
+		post.Embed = &bsky.FeedPost_Embed{EmbedImages: &bsky.EmbedImages{}}
+	}
+	for _, m := range tw.media {
+		resp, err := atproto.RepoUploadBlob(ctx, b.client, bytes.NewReader(m.b))
+		if err != nil {
+			return "", errutil.With(err)
+		}
+		post.Embed.EmbedImages.Images = append(post.Embed.EmbedImages.Images, &bsky.EmbedImages_Image{
+			Alt: m.altText,
+			Image: &lexutil.LexBlob{
+				Ref:      resp.Blob.Ref,
+				MimeType: "image/png",
+				Size:     resp.Blob.Size,
+			},
+		})
+	}
+
+	resp, err := atproto.RepoCreateRecord(ctx, b.client, &atproto.RepoCreateRecord_Input{
+		Collection: "app.bsky.feed.post",
+		Repo:       b.client.Auth.Did,
+		Record:     &lexutil.LexiconTypeDecoder{Val: post},
+	})
+	if err != nil {
+		return "", errutil.With(err)
+	}
+
+	ref := &atproto.RepoStrongRef{
+		Cid: resp.Cid,
+		Uri: resp.Uri,
+	}
+	refB, err := json.Marshal(ref)
+	if err != nil {
+		return "", errutil.With(err)
+	}
+
+	return string(refB), nil
 }
 
 type saveTweeter struct {

@@ -93,6 +93,19 @@ func main() {
 			}
 		}
 
+		if rootCfg.bskyHandle != "" {
+			if rootCfg.tweetInReplyTo != "" {
+				log.Fatal("not yet supported, need to break things apart more")
+			}
+
+			bt, err := newBlueskyPoster(rootCfg.bskyServer, rootCfg.bskyHandle, rootCfg.bskyPassword)
+			if err != nil {
+				log.Println(err)
+			} else {
+				mtt = append(mtt, tweetThreader{t: bt, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
+			}
+		}
+
 		if len(mtt) == 0 {
 			log.Fatal("no tweet threaders configured")
 		}
@@ -121,6 +134,10 @@ type rootConfig struct {
 	mastodonClientID     string
 	mastodonClientSecret string
 	mastodonAccessToken  string
+
+	bskyServer   string
+	bskyHandle   string
+	bskyPassword string
 
 	initialTweet string
 
@@ -152,6 +169,10 @@ func newRootCmd() (*ffcli.Command, *rootConfig) {
 	fs.StringVar(&cfg.mastodonClientID, "mastodon-client-id", "", "mastodon client id/key")
 	fs.StringVar(&cfg.mastodonClientSecret, "mastodon-client-secret", "", "mastodon client secret")
 	fs.StringVar(&cfg.mastodonAccessToken, "mastodon-access-token", "", "mastodon access token")
+
+	fs.StringVar(&cfg.bskyServer, "bsky-server", "https://bsky.social", "bluesky server URL")
+	fs.StringVar(&cfg.bskyHandle, "bsky-handle", "", "bluesky handle")
+	fs.StringVar(&cfg.bskyPassword, "bsky-password", "", "bluesky password")
 
 	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated tweets to disk instead of tweeting")
 
