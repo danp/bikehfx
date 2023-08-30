@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/hexops/gotextdiff/myers"
 	"github.com/hexops/gotextdiff/span"
 	"github.com/hexops/valast"
+	"gonum.org/v1/plot/cmpimg"
 )
 
 func TestDayPostText(t *testing.T) {
@@ -237,7 +239,16 @@ func expect(t testing.TB, filename string, got any) {
 
 	switch got := got.(type) {
 	case []byte:
-		if !bytes.Equal(got, want) {
+		if strings.HasSuffix(filename, ".png") {
+			// Images differ slightly across GOARCHes due to floating point fuzziness.
+			ok, err := cmpimg.EqualApprox("png", got, want, 0.05)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok {
+				msg = fmt.Sprintf("%v: image path %v does not match expected", filename, path)
+			}
+		} else if !bytes.Equal(got, want) {
 			msg = fmt.Sprintf("%v: path %v does not match expected", filename, path)
 		}
 		save = got
