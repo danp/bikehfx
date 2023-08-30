@@ -1,6 +1,6 @@
 # bikehfx
 
-Mainly the source for [BikeHfxStats on Twitter](https://twitter.com/bikehfxstats) and [@BikeHfxStats@mstdn.ca](https://mstdn.ca/@BikeHfxStats) in the Fediverse.
+Mainly the source for [@BikeHfxStats@mstdn.ca](https://mstdn.ca/@BikeHfxStats) in the Fediverse, [stats.hfx.bike](https://bsky.app/profile/stats.hfx.bike) on Bluesky, and [BikeHfxStats on Twitter](https://twitter.com/bikehfxstats).
 
 Uses [counterbase](https://github.com/danp/counterbase).
 
