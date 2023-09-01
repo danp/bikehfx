@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"flag"
+	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
+	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -41,183 +45,275 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 		return errutil.With(err)
 	}
 
+	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
+
 	var tweets []tweet
 	for _, week := range weeks {
-		weekt, err := time.Parse("20060102", week)
+		weekt, err := time.ParseInLocation("20060102", week, loc)
 		if err != nil {
 			return errutil.With(err)
 		}
 
-		weekRange := newTimeRangeDate(time.Date(weekt.Year(), weekt.Month(), weekt.Day()-int(weekt.Weekday()), 0, 0, 0, 0, loc), 0, 0, 7)
-
-		weekRanges := []timeRange{weekRange}
-		weekRangeYear, weekRangeNum := weekRange.begin.ISOWeek()
-		for year := weekRangeYear - 1; year >= 2017 && len(weekRanges) < 8; year-- {
-			diff := weekRangeYear - year
-			pw := weekRange.addDate(-diff, 0, 0).startOfWeek()
-			for {
-				pwRangeYear, pwRangeNum := pw.begin.ISOWeek()
-				if pwRangeYear == year && pwRangeNum == weekRangeNum {
-					break
-				}
-				if pwRangeYear < year || pwRangeNum < weekRangeNum {
-					pw = pw.addDate(0, 0, 7)
-					continue
-				}
-				if pwRangeYear > year || pwRangeNum > weekRangeNum {
-					pw = pw.addDate(0, 0, -7)
-					continue
-				}
-			}
-			weekRanges = append(weekRanges, pw)
-		}
-
-		var weeksSeries [][]counterSeries
-		for _, wr := range weekRanges {
-			counters, err := ccd.counters(ctx, wr)
-			if err != nil {
-				return errutil.With(err)
-			}
-
-			weekSeries, err := trq.queryCounterSeries(ctx, counters, []timeRange{wr})
-			if err != nil {
-				return errutil.With(err)
-			}
-
-			weeksSeries = append(weeksSeries, weekSeries)
-		}
-
-		records, err := rc.check(ctx, weekRange.begin, weeksSeries[0], recordWidthWeek)
+		ts, err := weekPost(ctx, weekt, trq2, rc)
 		if err != nil {
 			return errutil.With(err)
 		}
 
-		weekTweetText := tweetText(weeksSeries[0], records, func(p *message.Printer, sum string) string {
-			return p.Sprintf("Week review:\n\n%s #BikeHfx trips counted week ending %s", sum, weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
-		})
-
-		graphBegin := weekRange.begin.AddDate(0, 0, -7*7)
-		graphRange := newTimeRangeDate(graphBegin, 0, 0, 8*7)
-		graphWeeks := graphRange.splitDate(0, 0, 7)
-
-		graphCounters, err := ccd.counters(ctx, graphRange)
-		if err != nil {
-			return errutil.With(err)
-		}
-
-		graphCountSeries, err := trq.queryCounterSeries(ctx, graphCounters, graphWeeks)
-		if err != nil {
-			return errutil.With(err)
-		}
-
-		weekCounts := make(map[time.Time]int)
-		for _, cs := range graphCountSeries {
-			for _, s := range cs.series {
-				weekCounts[s.tr.begin] += s.val
-			}
-		}
-
-		var graphTRVs []timeRangeValue
-		for _, gm := range graphWeeks {
-			graphTRVs = append(graphTRVs, timeRangeValue{tr: gm, val: weekCounts[gm.begin]})
-		}
-
-		gr, err := timeRangeBarGraph(graphTRVs, "Total count by week ending", func(tr timeRange) string { return tr.end.AddDate(0, 0, -1).Format("Jan 2") })
-		if err != nil {
-			return errutil.With(err)
-		}
-
-		atg := altTextGenerator{
-			headlinePrinter: func(p *message.Printer, len int) string {
-				return p.Sprintf("Bar chart of counted cycling trips by week for last %d weeks.", len)
-			},
-			changePrinter: func(p *message.Printer, cur int, pctChange int) string {
-				if pctChange == 0 {
-					return p.Sprintf("The most recent week's count of %d is about the same as the previous week.", cur)
-				}
-
-				var moreOrFewer string
-				if pctChange > 0 {
-					moreOrFewer = "more"
-				} else {
-					moreOrFewer = "fewer"
-					pctChange *= -1
-				}
-				return p.Sprintf("The most recent week had %d trips counted, %d%% %s than the previous week.", cur, pctChange, moreOrFewer)
-			},
-		}
-
-		altText, err := atg.text(graphTRVs)
-		if err != nil {
-			return errutil.With(err)
-		}
-
-		tweets = append(tweets, tweet{
-			text: weekTweetText,
-			media: []tweetMedia{
-				{b: gr, altText: altText},
-			},
-		})
-
-		var graph2TRVs []timeRangeValue
-		for i, wr := range weekRanges {
-			ws := weeksSeries[i]
-			var sum int
-			for _, cs := range ws {
-				for _, s := range cs.series {
-					sum += s.val
-				}
-			}
-			graph2TRVs = append(graph2TRVs, timeRangeValue{tr: wr, val: sum})
-		}
-
-		prevWeeksTweetPrinter := message.NewPrinter(language.English)
-		prevWeeksTweetText := prevWeeksTweetPrinter.Sprintf("Previous year counts for week %d:\n\n", weekRangeNum)
-		for _, trv := range graph2TRVs {
-			prevWeeksTweetText += prevWeeksTweetPrinter.Sprintf("%v: %v\n", trv.tr.end.Format("2006"), trv.val)
-		}
-
-		reverse(graph2TRVs)
-		gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksTweetPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
-		if err != nil {
-			return errutil.With(err)
-		}
-
-		atg2 := altTextGenerator{
-			headlinePrinter: func(p *message.Printer, len int) string {
-				return p.Sprintf("Bar chart of counted cycling trips for week %d over last %d years.", weekRangeNum, len)
-			},
-			changePrinter: func(p *message.Printer, cur int, pctChange int) string {
-				if pctChange == 0 {
-					return p.Sprintf("The most recent years's count of %d is about the same as the previous year.", cur)
-				}
-
-				var moreOrFewer string
-				if pctChange > 0 {
-					moreOrFewer = "more"
-				} else {
-					moreOrFewer = "fewer"
-					pctChange *= -1
-				}
-				return p.Sprintf("The most recent year had %d trips counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
-			},
-		}
-
-		altText2, err := atg2.text(graph2TRVs)
-		if err != nil {
-			return errutil.With(err)
-		}
-
-		tweets = append(tweets, tweet{
-			text: prevWeeksTweetText,
-			media: []tweetMedia{
-				{b: gr2, altText: altText2},
-			},
-		})
+		tweets = append(tweets, ts...)
 	}
 
 	if _, err := twt.tweetThread(ctx, tweets); err != nil {
 		return errutil.With(err)
 	}
 	return nil
+}
+
+func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]tweet, error) {
+	var tweets []tweet
+
+	weekRange := newTimeRangeDate(time.Date(weekt.Year(), weekt.Month(), weekt.Day()-int(weekt.Weekday()), 0, 0, 0, 0, weekt.Location()), 0, 0, 7)
+
+	weekRanges := []timeRange{weekRange}
+	weekRangeYear, weekRangeNum := weekRange.begin.ISOWeek()
+	for year := weekRangeYear - 1; year >= 2017 && len(weekRanges) < 8; year-- {
+		diff := weekRangeYear - year
+		pw := weekRange.addDate(-diff, 0, 0).startOfWeek()
+		for {
+			pwRangeYear, pwRangeNum := pw.begin.ISOWeek()
+			if pwRangeYear == year && pwRangeNum == weekRangeNum {
+				break
+			}
+			if pwRangeYear < year || pwRangeNum < weekRangeNum {
+				pw = pw.addDate(0, 0, 7)
+				continue
+			}
+			if pwRangeYear > year || pwRangeNum > weekRangeNum {
+				pw = pw.addDate(0, 0, -7)
+				continue
+			}
+		}
+		weekRanges = append(weekRanges, pw)
+	}
+
+	var weeksSeries [][]counterSeriesV2
+	for _, wr := range weekRanges {
+		weekSeries, err := trq.query(ctx, wr)
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		weeksSeries = append(weeksSeries, weekSeries)
+	}
+
+	var cs1 []counterSeries
+	for _, c := range weeksSeries[0] {
+		if len(c.series) == 0 {
+			continue
+		}
+		cs1 = append(cs1, counterSeries{
+			counter: c.counter,
+			series:  c.series,
+		})
+	}
+	records, err := rc.check(ctx, weekRange.begin, cs1, recordWidthWeek)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	weekTweetText := weekPostText(weekRange, weeksSeries[0], records)
+
+	graphBegin := weekRange.begin.AddDate(0, 0, -7*7)
+	graphRange := newTimeRangeDate(graphBegin, 0, 0, 8*7)
+	graphWeeks := graphRange.splitDate(0, 0, 7)
+
+	graphCountSeries, err := trq.query(ctx, graphWeeks...)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	weekCounts := make(map[time.Time]int)
+	for _, cs := range graphCountSeries {
+		for _, s := range cs.series {
+			weekCounts[s.tr.begin] += s.val
+		}
+	}
+
+	var graphTRVs []timeRangeValue
+	for _, gm := range graphWeeks {
+		graphTRVs = append(graphTRVs, timeRangeValue{tr: gm, val: weekCounts[gm.begin]})
+	}
+
+	gr, err := timeRangeBarGraph(graphTRVs, "Total count by week ending", func(tr timeRange) string { return tr.end.AddDate(0, 0, -1).Format("Jan 2") })
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	atg := altTextGenerator{
+		headlinePrinter: func(p *message.Printer, len int) string {
+			return p.Sprintf("Bar chart of counted cycling trips by week for last %d weeks.", len)
+		},
+		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
+			if pctChange == 0 {
+				return p.Sprintf("The most recent week's count of %d is about the same as the previous week.", cur)
+			}
+
+			var moreOrFewer string
+			if pctChange > 0 {
+				moreOrFewer = "more"
+			} else {
+				moreOrFewer = "fewer"
+				pctChange *= -1
+			}
+			return p.Sprintf("The most recent week had %d trips counted, %d%% %s than the previous week.", cur, pctChange, moreOrFewer)
+		},
+	}
+
+	altText, err := atg.text(graphTRVs)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	tweets = append(tweets, tweet{
+		text: weekTweetText,
+		media: []tweetMedia{
+			{b: gr, altText: altText},
+		},
+	})
+
+	var graph2TRVs []timeRangeValue
+	for i, wr := range weekRanges {
+		ws := weeksSeries[i]
+		var sum int
+		for _, cs := range ws {
+			for _, s := range cs.series {
+				sum += s.val
+			}
+		}
+		graph2TRVs = append(graph2TRVs, timeRangeValue{tr: wr, val: sum})
+	}
+
+	prevWeeksTweetPrinter := message.NewPrinter(language.English)
+	prevWeeksTweetText := prevWeeksTweetPrinter.Sprintf("Previous year counts for week %d:\n\n", weekRangeNum)
+	for _, trv := range graph2TRVs {
+		prevWeeksTweetText += prevWeeksTweetPrinter.Sprintf("%v: %v\n", trv.tr.end.Format("2006"), trv.val)
+	}
+
+	reverse(graph2TRVs)
+	gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksTweetPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	atg2 := altTextGenerator{
+		headlinePrinter: func(p *message.Printer, len int) string {
+			return p.Sprintf("Bar chart of counted cycling trips for week %d over last %d years.", weekRangeNum, len)
+		},
+		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
+			if pctChange == 0 {
+				return p.Sprintf("The most recent years's count of %d is about the same as the previous year.", cur)
+			}
+
+			var moreOrFewer string
+			if pctChange > 0 {
+				moreOrFewer = "more"
+			} else {
+				moreOrFewer = "fewer"
+				pctChange *= -1
+			}
+			return p.Sprintf("The most recent year had %d trips counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
+		},
+	}
+
+	altText2, err := atg2.text(graph2TRVs)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	tweets = append(tweets, tweet{
+		text: prevWeeksTweetText,
+		media: []tweetMedia{
+			{b: gr2, altText: altText2},
+		},
+	})
+
+	return tweets, nil
+}
+
+func weekPostText(weekRange timeRange, cs []counterSeriesV2, records map[string]recordKind) string {
+	var out strings.Builder
+
+	p := message.NewPrinter(language.English)
+
+	var sum int
+	presentIncompleteIndices := make(map[int]struct{})
+	var presentIndices, missingIndices []int
+	end := weekRange.end.AddDate(0, 0, -1)
+	for i, c := range cs {
+		for _, v := range c.series {
+			sum += v.val
+		}
+
+		if c.last.Before(weekRange.begin) || c.lastNonZero.Before(weekRange.begin) {
+			missingIndices = append(missingIndices, i)
+			continue
+		}
+
+		presentIndices = append(presentIndices, i)
+		if c.last.Before(end) || c.lastNonZero.Before(end) {
+			presentIncompleteIndices[i] = struct{}{}
+		}
+	}
+
+	p.Fprintf(&out, "Week review:\n\n%v%v #BikeHfx trips counted week ending %v\n\n", sum, recordSymbol(records["sum"]), weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
+
+	sort.Slice(presentIndices, func(i, j int) bool {
+		i, j = presentIndices[i], presentIndices[j]
+		return cs[i].counter.Name < cs[j].counter.Name
+	})
+	for _, i := range presentIndices {
+		c := cs[i]
+		v := c.series[len(c.series)-1].val
+		p.Fprintf(&out, "%v%v %v", v, recordSymbol(records[c.counter.ID]), c.counter.Name)
+		if _, ok := presentIncompleteIndices[i]; ok {
+			last := c.last
+			if !c.lastNonZero.IsZero() {
+				last = c.lastNonZero
+			}
+			p.Fprintf(&out, " (last %v)", last.Format("Jan 2"))
+		}
+		p.Fprintln(&out)
+	}
+
+	recordKinds := make(map[recordKind]struct{})
+	for _, k := range records {
+		recordKinds[k] = struct{}{}
+	}
+	if len(recordKinds) > 0 {
+		keys := maps.Keys(recordKinds)
+		slices.Sort(keys)
+		p.Fprintln(&out)
+		for _, k := range keys {
+			p.Fprintln(&out, recordNote(k))
+		}
+	}
+
+	if len(missingIndices) > 0 {
+		sort.Slice(missingIndices, func(i, j int) bool {
+			i, j = missingIndices[i], missingIndices[j]
+			return cs[i].counter.Name < cs[j].counter.Name
+		})
+
+		p.Fprintln(&out)
+		p.Fprintln(&out, "Missing (last):")
+		for _, i := range missingIndices {
+			c := cs[i]
+			last := c.last
+			if !c.lastNonZero.IsZero() {
+				last = c.lastNonZero
+			}
+			p.Fprintf(&out, "%v (%v)\n", c.counter.Name, last.Format("Jan 2"))
+		}
+	}
+
+	return strings.TrimSpace(out.String())
 }
