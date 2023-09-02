@@ -67,7 +67,7 @@ func main() {
 
 	var tt tweetThread
 	if rootCfg.testMode {
-		tt = tweetThreader{t: &saveTweeter{}, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet}
+		tt = tweetThreader{t: &saveTweeter{}, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost}
 	} else {
 		var mtt multiTweetThreader
 
@@ -76,33 +76,25 @@ func main() {
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, tweetThreader{t: tw, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
+				mtt = append(mtt, tweetThreader{t: tw, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
 		if rootCfg.mastodonClientID != "" {
-			if rootCfg.tweetInReplyTo != "" {
-				log.Fatal("not yet supported, need to break things apart more")
-			}
-
 			mt, err := newMastodonTooter(rootCfg.mastodonServer, rootCfg.mastodonClientID, rootCfg.mastodonClientSecret, rootCfg.mastodonAccessToken)
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, tweetThreader{t: mt, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
+				mtt = append(mtt, tweetThreader{t: mt, inReplyTo: rootCfg.mastodonInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
 		if rootCfg.bskyHandle != "" {
-			if rootCfg.tweetInReplyTo != "" {
-				log.Fatal("not yet supported, need to break things apart more")
-			}
-
 			bt, err := newBlueskyPoster(rootCfg.bskyServer, rootCfg.bskyHandle, rootCfg.bskyPassword)
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, tweetThreader{t: bt, inReplyTo: rootCfg.tweetInReplyTo, initial: rootCfg.initialTweet})
+				mtt = append(mtt, tweetThreader{t: bt, inReplyTo: rootCfg.bskyInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
@@ -124,22 +116,24 @@ type rootConfig struct {
 	directoryURL string
 	queryURL     string
 
+	initialPost string
+
 	twitterConsumerKey    string
 	twitterConsumerSecret string
 	twitterAppToken       string
 	twitterAppSecret      string
-	tweetInReplyTo        string
+	twitterInReplyTo      string
 
 	mastodonServer       string
 	mastodonClientID     string
 	mastodonClientSecret string
 	mastodonAccessToken  string
+	mastodonInReplyTo    string
 
-	bskyServer   string
-	bskyHandle   string
-	bskyPassword string
-
-	initialTweet string
+	bskyServer    string
+	bskyHandle    string
+	bskyPassword  string
+	bskyInReplyTo string
 
 	testMode bool
 
@@ -157,22 +151,25 @@ func newRootCmd() (*ffcli.Command, *rootConfig) {
 	fs.StringVar(&cfg.directoryURL, "directory-url", "", "directory URL")
 	fs.StringVar(&cfg.queryURL, "query-url", "", "query URL")
 
+	fs.StringVar(&cfg.initialPost, "initial-post", "", "if set, text for first post")
+
 	fs.StringVar(&cfg.twitterConsumerKey, "twitter-consumer-key", "", "twitter consumer key")
 	fs.StringVar(&cfg.twitterConsumerSecret, "twitter-consumer-secret", "", "twitter consumer secret")
 	fs.StringVar(&cfg.twitterAppToken, "twitter-app-token", "", "twitter app token")
 	fs.StringVar(&cfg.twitterAppSecret, "twitter-app-secret", "", "twitter app secret")
-	fs.StringVar(&cfg.tweetInReplyTo, "tweet-in-reply-to", "", "if set, first tweet will reply to this status")
-	fs.StringVar(&cfg.initialTweet, "initial-tweet", "", "if set, text for first tweet")
+	fs.StringVar(&cfg.twitterInReplyTo, "twitter-in-reply-to", "", "if set, first tweet will reply to this status id")
 
 	fs.StringVar(&cfg.mastodonServer, "mastodon-server", "", "mastodon server URL")
 	// https://docs.joinmastodon.org/client/token/, requires read:accounts, write:media, write:statuses
 	fs.StringVar(&cfg.mastodonClientID, "mastodon-client-id", "", "mastodon client id/key")
 	fs.StringVar(&cfg.mastodonClientSecret, "mastodon-client-secret", "", "mastodon client secret")
 	fs.StringVar(&cfg.mastodonAccessToken, "mastodon-access-token", "", "mastodon access token")
+	fs.StringVar(&cfg.mastodonInReplyTo, "mastodon-in-reply-to", "", "if set, first post will reply to this status id")
 
 	fs.StringVar(&cfg.bskyServer, "bsky-server", "https://bsky.social", "bluesky server URL")
 	fs.StringVar(&cfg.bskyHandle, "bsky-handle", "", "bluesky handle")
 	fs.StringVar(&cfg.bskyPassword, "bsky-password", "", "bluesky password")
+	fs.StringVar(&cfg.bskyInReplyTo, "bsky-in-reply-to", "", "if set, first post will reply to this status (json of cid and uri)")
 
 	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated tweets to disk instead of tweeting")
 
