@@ -18,15 +18,15 @@ import (
 func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
 		fs     = flag.NewFlagSet("bikehfx-tweet monthly", flag.ExitOnError)
-		month  = fs.String("month", time.Now().AddDate(0, -1, 0).Format("200601"), "month to tweet for, in YYYYMM form")
+		month  = fs.String("month", time.Now().AddDate(0, -1, 0).Format("200601"), "month to post for, in YYYYMM form")
 		months commaSeparatedString
 	)
-	fs.Var(&months, "months", "comma-separated months to tweet, in YYYYMM form, preferred over month")
+	fs.Var(&months, "months", "comma-separated months to post, in YYYYMM form, preferred over month")
 
 	return &ffcli.Command{
 		Name:       "monthly",
 		ShortUsage: "bikehfx-tweet monthly",
-		ShortHelp:  "send monthly tweet",
+		ShortHelp:  "send monthly post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {
 			months := months.vals
@@ -39,7 +39,7 @@ func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 	}
 }
 
-func monthlyExec(ctx context.Context, months []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
+func monthlyExec(ctx context.Context, months []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -47,7 +47,7 @@ func monthlyExec(ctx context.Context, months []string, ccd cyclingCounterDirecto
 
 	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
-	var tweets []tweet
+	var posts []post
 	for _, month := range months {
 		montht, err := time.ParseInLocation("200601", month, loc)
 		if err != nil {
@@ -59,17 +59,17 @@ func monthlyExec(ctx context.Context, months []string, ccd cyclingCounterDirecto
 			return errutil.With(err)
 		}
 
-		tweets = append(tweets, ts...)
+		posts = append(posts, ts...)
 	}
 
-	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+	if _, err := twt.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
 }
 
-func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]tweet, error) {
-	var tweets []tweet
+func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]post, error) {
+	var posts []post
 
 	monthRange := newTimeRangeDate(time.Date(montht.Year(), montht.Month(), 1, 0, 0, 0, 0, montht.Location()), 0, 1, 0)
 
@@ -105,7 +105,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 		return nil, errutil.With(err)
 	}
 
-	monthTweetText := monthPostText(monthRange, monthsSeries[0], records)
+	monthPostText := monthPostText(monthRange, monthsSeries[0], records)
 
 	graphBegin := monthRange.begin.AddDate(0, -7, 0)
 	graphRange := newTimeRangeDate(graphBegin, 0, 8, 0)
@@ -158,9 +158,9 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 		return nil, errutil.With(err)
 	}
 
-	tweets = append(tweets, tweet{
-		text: monthTweetText,
-		media: []tweetMedia{
+	posts = append(posts, post{
+		text: monthPostText,
+		media: []postMedia{
 			{b: gr, altText: altText},
 		},
 	})
@@ -177,14 +177,14 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 		graph2TRVs = append(graph2TRVs, timeRangeValue{tr: wr, val: sum})
 	}
 
-	prevMonthsTweetPrinter := message.NewPrinter(language.English)
-	prevMonthsTweetText := prevMonthsTweetPrinter.Sprintf("Previous year counts for %v:\n\n", monthRange.begin.Format("Jan"))
+	prevMonthsPostPrinter := message.NewPrinter(language.English)
+	prevMonthsPostText := prevMonthsPostPrinter.Sprintf("Previous year counts for %v:\n\n", monthRange.begin.Format("Jan"))
 	for _, trv := range graph2TRVs {
-		prevMonthsTweetText += prevMonthsTweetPrinter.Sprintf("%v: %v\n", trv.tr.begin.Format("2006"), trv.val)
+		prevMonthsPostText += prevMonthsPostPrinter.Sprintf("%v: %v\n", trv.tr.begin.Format("2006"), trv.val)
 	}
 
 	reverse(graph2TRVs)
-	gr2, err := timeRangeBarGraph(graph2TRVs, prevMonthsTweetPrinter.Sprintf("Total count for month %v by year", monthRange.begin.Format("Jan")), func(tr timeRange) string { return tr.begin.Format("2006") })
+	gr2, err := timeRangeBarGraph(graph2TRVs, prevMonthsPostPrinter.Sprintf("Total count for month %v by year", monthRange.begin.Format("Jan")), func(tr timeRange) string { return tr.begin.Format("2006") })
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -214,14 +214,14 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 		return nil, errutil.With(err)
 	}
 
-	tweets = append(tweets, tweet{
-		text: prevMonthsTweetText,
-		media: []tweetMedia{
+	posts = append(posts, post{
+		text: prevMonthsPostText,
+		media: []postMedia{
 			{b: gr2, altText: altText2},
 		},
 	})
 
-	return tweets, nil
+	return posts, nil
 }
 
 func monthPostText(monthRange timeRange, cs []counterSeriesV2, records map[string]recordKind) string {

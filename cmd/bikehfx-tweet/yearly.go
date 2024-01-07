@@ -18,15 +18,15 @@ import (
 func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
 		fs    = flag.NewFlagSet("bikehfx-tweet yearly", flag.ExitOnError)
-		year  = fs.String("year", time.Now().AddDate(-1, 0, 0).Format("2006"), "year to tweet for, in YYYY form")
+		year  = fs.String("year", time.Now().AddDate(-1, 0, 0).Format("2006"), "year to post for, in YYYY form")
 		years commaSeparatedString
 	)
-	fs.Var(&years, "years", "comma-separated years to tweet, in YYYY form, preferred over year")
+	fs.Var(&years, "years", "comma-separated years to post, in YYYY form, preferred over year")
 
 	return &ffcli.Command{
 		Name:       "yearly",
 		ShortUsage: "bikehfx-tweet yearly",
-		ShortHelp:  "send yearly tweet",
+		ShortHelp:  "send yearly post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {
 			years := years.vals
@@ -39,7 +39,7 @@ func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 	}
 }
 
-func yearlyExec(ctx context.Context, years []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
+func yearlyExec(ctx context.Context, years []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -47,7 +47,7 @@ func yearlyExec(ctx context.Context, years []string, ccd cyclingCounterDirectory
 
 	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
-	var tweets []tweet
+	var posts []post
 	for _, year := range years {
 		yeart, err := time.ParseInLocation("2006", year, loc)
 		if err != nil {
@@ -59,17 +59,17 @@ func yearlyExec(ctx context.Context, years []string, ccd cyclingCounterDirectory
 			return errutil.With(err)
 		}
 
-		tweets = append(tweets, ts...)
+		posts = append(posts, ts...)
 	}
 
-	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+	if _, err := twt.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
 }
 
-func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]tweet, error) {
-	var tweets []tweet
+func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]post, error) {
+	var posts []post
 
 	yearRange := newTimeRangeDate(time.Date(yeart.Year(), 1, 1, 0, 0, 0, 0, yeart.Location()), 1, 0, 0)
 
@@ -105,7 +105,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
-	yearTweetText := yearPostText(yearRange, yearsSeries[0], records)
+	yearPostText := yearPostText(yearRange, yearsSeries[0], records)
 
 	graphBegin := yearRange.begin.AddDate(-7, 0, 0)
 	graphRange := newTimeRangeDate(graphBegin, 8, 0, 0)
@@ -158,9 +158,9 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
-	tweets = append(tweets, tweet{
-		text: yearTweetText,
-		media: []tweetMedia{
+	posts = append(posts, post{
+		text: yearPostText,
+		media: []postMedia{
 			{b: gr, altText: altText},
 		},
 	})
@@ -177,14 +177,14 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		graph2TRVs = append(graph2TRVs, timeRangeValue{tr: wr, val: sum})
 	}
 
-	prevYearsTweetPrinter := message.NewPrinter(language.English)
-	prevYearsTweetText := prevYearsTweetPrinter.Sprintf("Previous year counts:\n\n")
+	prevYearsPostPrinter := message.NewPrinter(language.English)
+	prevYearsPostText := prevYearsPostPrinter.Sprintf("Previous year counts:\n\n")
 	for _, trv := range graph2TRVs {
-		prevYearsTweetText += prevYearsTweetPrinter.Sprintf("%v: %v\n", trv.tr.begin.Format("2006"), trv.val)
+		prevYearsPostText += prevYearsPostPrinter.Sprintf("%v: %v\n", trv.tr.begin.Format("2006"), trv.val)
 	}
 
 	reverse(graph2TRVs)
-	gr2, err := timeRangeBarGraph(graph2TRVs, prevYearsTweetPrinter.Sprintf("Total count by year"), func(tr timeRange) string { return tr.begin.Format("2006") })
+	gr2, err := timeRangeBarGraph(graph2TRVs, prevYearsPostPrinter.Sprintf("Total count by year"), func(tr timeRange) string { return tr.begin.Format("2006") })
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -214,14 +214,14 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
-	tweets = append(tweets, tweet{
-		text: prevYearsTweetText,
-		media: []tweetMedia{
+	posts = append(posts, post{
+		text: prevYearsPostText,
+		media: []postMedia{
 			{b: gr2, altText: altText2},
 		},
 	})
 
-	return tweets, nil
+	return posts, nil
 }
 
 func yearPostText(yearRange timeRange, cs []counterSeriesV2, records map[string]recordKind) string {

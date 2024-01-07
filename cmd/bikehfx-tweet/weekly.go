@@ -18,15 +18,15 @@ import (
 func newWeeklyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
 		fs    = flag.NewFlagSet("bikehfx-tweet weekly", flag.ExitOnError)
-		week  = fs.String("week", time.Now().AddDate(0, 0, -7).Format("20060102"), "week to tweet for, in YYYYMMDD form")
+		week  = fs.String("week", time.Now().AddDate(0, 0, -7).Format("20060102"), "week to post for, in YYYYMMDD form")
 		weeks commaSeparatedString
 	)
-	fs.Var(&weeks, "weeks", "comma-separated weeks to tweet, in YYYYMMDD form, preferred over week")
+	fs.Var(&weeks, "weeks", "comma-separated weeks to post, in YYYYMMDD form, preferred over week")
 
 	return &ffcli.Command{
 		Name:       "weekly",
 		ShortUsage: "bikehfx-tweet weekly",
-		ShortHelp:  "send weekly tweet",
+		ShortHelp:  "send weekly post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {
 			weeks := weeks.vals
@@ -39,7 +39,7 @@ func newWeeklyCmd(rootConfig *rootConfig) *ffcli.Command {
 	}
 }
 
-func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
+func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, pt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -47,29 +47,29 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 
 	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
-	var tweets []tweet
+	var posts []post
 	for _, week := range weeks {
 		weekt, err := time.ParseInLocation("20060102", week, loc)
 		if err != nil {
 			return errutil.With(err)
 		}
 
-		ts, err := weekPost(ctx, weekt, trq2, rc)
+		ps, err := weekPost(ctx, weekt, trq2, rc)
 		if err != nil {
 			return errutil.With(err)
 		}
 
-		tweets = append(tweets, ts...)
+		posts = append(posts, ps...)
 	}
 
-	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+	if _, err := pt.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
 }
 
-func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]tweet, error) {
-	var tweets []tweet
+func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]post, error) {
+	var posts []post
 
 	weekRange := newTimeRangeDate(time.Date(weekt.Year(), weekt.Month(), weekt.Day()-int(weekt.Weekday()), 0, 0, 0, 0, weekt.Location()), 0, 0, 7)
 
@@ -120,7 +120,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
-	weekTweetText := weekPostText(weekRange, weeksSeries[0], records)
+	weekPostText := weekPostText(weekRange, weeksSeries[0], records)
 
 	graphBegin := weekRange.begin.AddDate(0, 0, -7*7)
 	graphRange := newTimeRangeDate(graphBegin, 0, 0, 8*7)
@@ -173,9 +173,9 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
-	tweets = append(tweets, tweet{
-		text: weekTweetText,
-		media: []tweetMedia{
+	posts = append(posts, post{
+		text: weekPostText,
+		media: []postMedia{
 			{b: gr, altText: altText},
 		},
 	})
@@ -192,14 +192,14 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		graph2TRVs = append(graph2TRVs, timeRangeValue{tr: wr, val: sum})
 	}
 
-	prevWeeksTweetPrinter := message.NewPrinter(language.English)
-	prevWeeksTweetText := prevWeeksTweetPrinter.Sprintf("Previous year counts for week %d:\n\n", weekRangeNum)
+	prevWeeksPostPrinter := message.NewPrinter(language.English)
+	prevWeeksPostText := prevWeeksPostPrinter.Sprintf("Previous year counts for week %d:\n\n", weekRangeNum)
 	for _, trv := range graph2TRVs {
-		prevWeeksTweetText += prevWeeksTweetPrinter.Sprintf("%v: %v\n", trv.tr.end.Format("2006"), trv.val)
+		prevWeeksPostText += prevWeeksPostPrinter.Sprintf("%v: %v\n", trv.tr.end.Format("2006"), trv.val)
 	}
 
 	reverse(graph2TRVs)
-	gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksTweetPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
+	gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksPostPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -229,14 +229,14 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
-	tweets = append(tweets, tweet{
-		text: prevWeeksTweetText,
-		media: []tweetMedia{
+	posts = append(posts, post{
+		text: prevWeeksPostText,
+		media: []postMedia{
 			{b: gr2, altText: altText2},
 		},
 	})
 
-	return tweets, nil
+	return posts, nil
 }
 
 func weekPostText(weekRange timeRange, cs []counterSeriesV2, records map[string]recordKind) string {

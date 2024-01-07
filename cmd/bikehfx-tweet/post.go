@@ -23,32 +23,44 @@ import (
 	"github.com/mattn/go-mastodon"
 )
 
-type tweetThreader struct {
-	t         tweeter
+type postMedia struct {
+	b       []byte
+	altText string
+}
+
+type post struct {
+	inReplyTo string
+	text      string
+
+	media []postMedia
+}
+
+type postThreader struct {
+	t         poster
 	inReplyTo string
 	initial   string
 }
 
-func (t tweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]string, error) {
+func (t postThreader) postThread(ctx context.Context, posts []post) ([]string, error) {
 	inReplyTo := t.inReplyTo
 
 	if t.initial != "" {
-		initial := tweet{
+		initial := post{
 			text: t.initial,
 		}
-		tws = append([]tweet{initial}, tws...)
+		posts = append([]post{initial}, posts...)
 	}
 
-	ids := make([]string, len(tws))
-	for i, tw := range tws {
-		tw.inReplyTo = inReplyTo
+	ids := make([]string, len(posts))
+	for i, p := range posts {
+		p.inReplyTo = inReplyTo
 
-		id, err := t.t.tweet(ctx, tw)
+		id, err := t.t.post(ctx, p)
 		if err != nil {
 			return nil, errutil.With(err)
 		}
 
-		fmt.Println("tweeted", id)
+		fmt.Println("posted", id)
 		ids[i] = id
 		inReplyTo = id
 	}
@@ -56,13 +68,13 @@ func (t tweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]string, 
 	return ids, nil
 }
 
-type multiTweetThreader []tweetThreader
+type multiPostThreader []postThreader
 
-func (m multiTweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]string, error) {
+func (m multiPostThreader) postThread(ctx context.Context, posts []post) ([]string, error) {
 	var errs []error
 	var ids []string
-	for _, t := range m {
-		is, err := t.tweetThread(ctx, tws)
+	for _, p := range m {
+		is, err := p.postThread(ctx, posts)
 		if err != nil {
 			errs = append(errs, errutil.With(err))
 			continue
@@ -75,22 +87,22 @@ func (m multiTweetThreader) tweetThread(ctx context.Context, tws []tweet) ([]str
 	return ids, nil
 }
 
-type twitterTweeter struct {
+type twitterPoster struct {
 	hc       *http.Client
 	username string
 }
 
-func newTwitterTweeter(consumerKey, consumerSecret, appToken, appSecret string) (twitterTweeter, error) {
+func newTwitterPoster(consumerKey, consumerSecret, appToken, appSecret string) (twitterPoster, error) {
 	oaConfig := oauth1.NewConfig(consumerKey, consumerSecret)
 	oaToken := oauth1.NewToken(appToken, appSecret)
 	cl := oaConfig.Client(context.Background(), oaToken)
 
 	currentUser, err := currentTwitterUser(cl)
 	if err != nil {
-		return twitterTweeter{}, errutil.With(err)
+		return twitterPoster{}, errutil.With(err)
 	}
 
-	return twitterTweeter{hc: cl, username: currentUser}, nil
+	return twitterPoster{hc: cl, username: currentUser}, nil
 }
 
 func currentTwitterUser(cl *http.Client) (string, error) {
@@ -111,21 +123,9 @@ func currentTwitterUser(cl *http.Client) (string, error) {
 	return body.Data.Username, nil
 }
 
-type tweetMedia struct {
-	b       []byte
-	altText string
-}
-
-type tweet struct {
-	inReplyTo string
-	text      string
-
-	media []tweetMedia
-}
-
-func (t twitterTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
+func (t twitterPoster) post(ctx context.Context, p post) (string, error) {
 	var mediaIDs []string
-	for _, m := range tw.media {
+	for _, m := range p.media {
 		id, err := t.uploadMedia(m)
 		if err != nil {
 			return "", errutil.With(err)
@@ -144,9 +144,9 @@ func (t twitterTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
 		Reply *Reply `json:"reply,omitempty"`
 		Media *Media `json:"media,omitempty"`
 	}
-	reqb.Text = tw.text
-	if tw.inReplyTo != "" {
-		reqb.Reply = &Reply{ID: tw.inReplyTo}
+	reqb.Text = p.text
+	if p.inReplyTo != "" {
+		reqb.Reply = &Reply{ID: p.inReplyTo}
 	}
 	if len(mediaIDs) > 0 {
 		reqb.Media = &Media{IDs: mediaIDs}
@@ -188,7 +188,7 @@ func (t twitterTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
 	return respb.Data.ID, nil
 }
 
-func (t twitterTweeter) uploadMedia(med tweetMedia) (string, error) {
+func (t twitterPoster) uploadMedia(med postMedia) (string, error) {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
@@ -304,12 +304,12 @@ func newMastodonTooter(server, clientID, clientSecret, accessToken string) (mast
 	return mastodonTooter{cl}, nil
 }
 
-func (m mastodonTooter) tweet(ctx context.Context, tw tweet) (string, error) {
+func (m mastodonTooter) post(ctx context.Context, p post) (string, error) {
 	var mediaIDs []mastodon.ID
-	for _, tm := range tw.media {
+	for _, pm := range p.media {
 		med := &mastodon.Media{
-			File:        bytes.NewReader(tm.b),
-			Description: tm.altText,
+			File:        bytes.NewReader(pm.b),
+			Description: pm.altText,
 		}
 		att, err := m.c.UploadMediaFromMedia(ctx, med)
 		if err != nil {
@@ -319,9 +319,9 @@ func (m mastodonTooter) tweet(ctx context.Context, tw tweet) (string, error) {
 	}
 
 	t := &mastodon.Toot{
-		Status:      tw.text,
+		Status:      p.text,
 		MediaIDs:    mediaIDs,
-		InReplyToID: mastodon.ID(tw.inReplyTo),
+		InReplyToID: mastodon.ID(p.inReplyTo),
 		Visibility:  mastodon.VisibilityUnlisted,
 	}
 
@@ -362,24 +362,24 @@ func newBlueskyPoster(clientHost, handle, password string) (blueskyPoster, error
 	return blueskyPoster{client: xrpcc}, nil
 }
 
-func (b blueskyPoster) tweet(ctx context.Context, tw tweet) (string, error) {
+func (b blueskyPoster) post(ctx context.Context, p post) (string, error) {
 	post := &bsky.FeedPost{
 		CreatedAt: time.Now().Format(time.RFC3339),
-		Text:      tw.text,
+		Text:      p.text,
 	}
 
-	if tw.inReplyTo != "" {
+	if p.inReplyTo != "" {
 		var ref atproto.RepoStrongRef
-		if err := json.Unmarshal([]byte(tw.inReplyTo), &ref); err != nil {
+		if err := json.Unmarshal([]byte(p.inReplyTo), &ref); err != nil {
 			return "", errutil.With(err)
 		}
 		post.Reply = &bsky.FeedPost_ReplyRef{Parent: &ref, Root: &ref}
 	}
 
-	if len(tw.media) > 0 {
+	if len(p.media) > 0 {
 		post.Embed = &bsky.FeedPost_Embed{EmbedImages: &bsky.EmbedImages{}}
 	}
-	for _, m := range tw.media {
+	for _, m := range p.media {
 		resp, err := atproto.RepoUploadBlob(ctx, b.client, bytes.NewReader(m.b))
 		if err != nil {
 			return "", errutil.With(err)
@@ -415,29 +415,29 @@ func (b blueskyPoster) tweet(ctx context.Context, tw tweet) (string, error) {
 	return string(refB), nil
 }
 
-type saveTweeter struct {
+type savePoster struct {
 	mu sync.Mutex
 	id int64
 }
 
-func (s *saveTweeter) tweet(ctx context.Context, tw tweet) (string, error) {
+func (s *savePoster) post(ctx context.Context, p post) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.id++ // avoid 0
 	id := fmt.Sprint(s.id)
 
-	prefix := fmt.Sprintf("tweet-%v", id)
+	prefix := fmt.Sprintf("post-%v", id)
 
-	if tw.inReplyTo != "" {
-		tw.text = "in reply to " + tw.inReplyTo + ": " + tw.text
+	if p.inReplyTo != "" {
+		p.text = "in reply to " + p.inReplyTo + ": " + p.text
 	}
 
-	if err := os.WriteFile(prefix+".txt", []byte(tw.text), 0600); err != nil {
+	if err := os.WriteFile(prefix+".txt", []byte(p.text), 0600); err != nil {
 		return "", errutil.With(err)
 	}
 
-	for mi, m := range tw.media {
+	for mi, m := range p.media {
 		mf, err := os.Create(fmt.Sprintf("%s-media-%d.png", prefix, mi))
 		if err != nil {
 			return "", errutil.With(err)

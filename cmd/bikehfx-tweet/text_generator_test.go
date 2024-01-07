@@ -8,7 +8,7 @@ import (
 	"golang.org/x/text/message"
 )
 
-func TestTweetText(t *testing.T) {
+func TestPostText(t *testing.T) {
 	cs := []counterSeries{
 		{
 			counter: directory.Counter{ID: "uni-arts", Name: "Uni Arts"},
@@ -24,7 +24,7 @@ func TestTweetText(t *testing.T) {
 		},
 	}
 
-	got := tweetText(cs, nil, func(p *message.Printer, sum string) string {
+	got := postText(cs, nil, func(p *message.Printer, sum string) string {
 		return p.Sprintf("the sum is %s", sum)
 	})
 	want := `the sum is 888
@@ -39,7 +39,7 @@ func TestTweetText(t *testing.T) {
 	}
 }
 
-func TestTweetTextFormatsThousands(t *testing.T) {
+func TestPostTextFormatsThousands(t *testing.T) {
 	cs := []counterSeries{
 		{
 			counter: directory.Counter{ID: "uni-arts", Name: "Uni Arts"},
@@ -55,7 +55,7 @@ func TestTweetTextFormatsThousands(t *testing.T) {
 		},
 	}
 
-	got := tweetText(cs, nil, func(p *message.Printer, sum string) string {
+	got := postText(cs, nil, func(p *message.Printer, sum string) string {
 		return p.Sprintf("the sum is %s", sum)
 	})
 	want := `the sum is 8,888
@@ -70,7 +70,7 @@ func TestTweetTextFormatsThousands(t *testing.T) {
 	}
 }
 
-func TestTweetTextRecords(t *testing.T) {
+func TestPostTextRecords(t *testing.T) {
 	cs := []counterSeries{
 		{
 			counter: directory.Counter{ID: "uni-arts", Name: "Uni Arts"},
@@ -92,7 +92,7 @@ func TestTweetTextRecords(t *testing.T) {
 		"sum":      recordKindAllTime,
 	}
 
-	got := tweetText(cs, records, func(p *message.Printer, sum string) string {
+	got := postText(cs, records, func(p *message.Printer, sum string) string {
 		return p.Sprintf("the sum is %s", sum)
 	})
 	want := `the sum is 888**

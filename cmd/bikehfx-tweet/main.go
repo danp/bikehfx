@@ -65,18 +65,18 @@ func main() {
 		ccd: rootCfg.ccd,
 	}
 
-	var tt tweetThread
+	var tt postThread
 	if rootCfg.testMode {
-		tt = tweetThreader{t: &saveTweeter{}, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost}
+		tt = postThreader{t: &savePoster{}, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost}
 	} else {
-		var mtt multiTweetThreader
+		var mtt multiPostThreader
 
 		if rootCfg.twitterAppSecret != "" {
-			tw, err := newTwitterTweeter(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
+			tw, err := newTwitterPoster(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, tweetThreader{t: tw, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost})
+				mtt = append(mtt, postThreader{t: tw, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
@@ -85,7 +85,7 @@ func main() {
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, tweetThreader{t: mt, inReplyTo: rootCfg.mastodonInReplyTo, initial: rootCfg.initialPost})
+				mtt = append(mtt, postThreader{t: mt, inReplyTo: rootCfg.mastodonInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
@@ -94,12 +94,12 @@ func main() {
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, tweetThreader{t: bt, inReplyTo: rootCfg.bskyInReplyTo, initial: rootCfg.initialPost})
+				mtt = append(mtt, postThreader{t: bt, inReplyTo: rootCfg.bskyInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
 		if len(mtt) == 0 {
-			log.Fatal("no tweet threaders configured")
+			log.Fatal("no post threaders configured")
 		}
 
 		tt = mtt
@@ -140,7 +140,7 @@ type rootConfig struct {
 	ccd cyclingCounterDirectory
 	trq timeRangeQuerier
 	rc  recordsChecker
-	twt tweetThread
+	twt postThread
 }
 
 func newRootCmd() (*ffcli.Command, *rootConfig) {
@@ -171,7 +171,7 @@ func newRootCmd() (*ffcli.Command, *rootConfig) {
 	fs.StringVar(&cfg.bskyPassword, "bsky-password", "", "bluesky password")
 	fs.StringVar(&cfg.bskyInReplyTo, "bsky-in-reply-to", "", "if set, first post will reply to this status (json of cid and uri)")
 
-	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated tweets to disk instead of tweeting")
+	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated posts to disk instead of posting")
 
 	return &ffcli.Command{
 		ShortUsage: "bikehfx-tweet [flags] <subcommand>",
@@ -225,12 +225,12 @@ func loadDirectory(src string) (Directory, error) {
 	return &fakeDirectory{C: counters}, nil
 }
 
-type tweetThread interface {
-	tweetThread(context.Context, []tweet) ([]string, error)
+type postThread interface {
+	postThread(context.Context, []post) ([]string, error)
 }
 
-type tweeter interface {
-	tweet(context.Context, tweet) (string, error)
+type poster interface {
+	post(context.Context, post) (string, error)
 }
 
 type Directory interface {

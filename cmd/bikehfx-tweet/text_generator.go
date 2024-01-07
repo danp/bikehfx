@@ -8,7 +8,7 @@ import (
 	"golang.org/x/text/message"
 )
 
-func tweetText(cs []counterSeries, records map[string]recordKind, headliner func(p *message.Printer, sum string) string) string {
+func postText(cs []counterSeries, records map[string]recordKind, headliner func(p *message.Printer, sum string) string) string {
 	var sum int
 	var csIndices []int
 	for i, s := range cs {

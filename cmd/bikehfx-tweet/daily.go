@@ -30,15 +30,15 @@ import (
 func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
 		fs   = flag.NewFlagSet("bikehfx-tweet daily", flag.ExitOnError)
-		day  = fs.String("day", time.Now().AddDate(0, 0, -1).Format("20060102"), "day to tweet for, in YYYYMMDD form")
+		day  = fs.String("day", time.Now().AddDate(0, 0, -1).Format("20060102"), "day to post for, in YYYYMMDD form")
 		days commaSeparatedString
 	)
-	fs.Var(&days, "days", "comma-separated days to tweet, in YYYYMMDD form, preferred over day")
+	fs.Var(&days, "days", "comma-separated days to post, in YYYYMMDD form, preferred over day")
 
 	return &ffcli.Command{
 		Name:       "daily",
 		ShortUsage: "bikehfx-tweet daily",
-		ShortHelp:  "send daily tweet",
+		ShortHelp:  "send daily post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {
 			days := days.vals
@@ -50,7 +50,7 @@ func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 	}
 }
 
-func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt tweetThread) error {
+func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -58,7 +58,7 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 
 	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
-	var tweets []tweet
+	var posts []post
 	for _, day := range days {
 		dayt, err := time.ParseInLocation("20060102", day, loc)
 		if err != nil {
@@ -70,10 +70,10 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 			return errutil.With(err)
 		}
 
-		tweets = append(tweets, ts...)
+		posts = append(posts, ts...)
 	}
 
-	if _, err := twt.tweetThread(ctx, tweets); err != nil {
+	if _, err := twt.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
@@ -98,7 +98,7 @@ type timeRangeQuerierV2 interface {
 	query(ctx context.Context, tr ...timeRange) ([]counterSeriesV2, error)
 }
 
-func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, weatherer weatherer, recordsChecker recordsChecker, grapher dayGrapher) ([]tweet, error) {
+func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, weatherer weatherer, recordsChecker recordsChecker, grapher dayGrapher) ([]post, error) {
 	dayRange := newTimeRangeDate(time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location()), 0, 0, 1)
 
 	cs, err := querier.query(ctx, dayRange)
@@ -154,9 +154,9 @@ func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, wea
 		return nil, errutil.With(err)
 	}
 
-	media := []tweetMedia{{b: dg, altText: dat}}
+	media := []postMedia{{b: dg, altText: dat}}
 
-	return []tweet{
+	return []post{
 		{text: text, media: media},
 	}, nil
 }
