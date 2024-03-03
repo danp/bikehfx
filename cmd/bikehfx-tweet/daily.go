@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"log"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -193,14 +193,13 @@ func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[str
 		p.Fprintf(&out, "\n\n")
 	}
 
-	sort.Slice(presentIndices, func(i, j int) bool {
-		i, j = presentIndices[i], presentIndices[j]
-		return cs[i].counter.Name < cs[j].counter.Name
+	slices.SortFunc(presentIndices, func(i, j int) int {
+		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 	})
 	for _, i := range presentIndices {
 		c := cs[i]
 		v := c.series[len(c.series)-1].val
-		p.Fprintf(&out, "%v%v %v\n", v, recordSymbol(records[c.counter.ID]), c.counter.Name)
+		p.Fprintf(&out, "%v%v %v\n", v, recordSymbol(records[c.counter.ID]), counterName(c.counter))
 	}
 
 	recordKinds := make(map[recordKind]struct{})
@@ -217,9 +216,8 @@ func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[str
 	}
 
 	if len(missingIndices) > 0 {
-		sort.Slice(missingIndices, func(i, j int) bool {
-			i, j = missingIndices[i], missingIndices[j]
-			return cs[i].counter.Name < cs[j].counter.Name
+		slices.SortFunc(missingIndices, func(i, j int) int {
+			return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 		})
 
 		p.Fprintln(&out)
@@ -230,7 +228,7 @@ func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[str
 			if !c.lastNonZero.IsZero() {
 				last = c.lastNonZero
 			}
-			p.Fprintf(&out, "%v (%v)\n", c.counter.Name, last.Format("Jan 2"))
+			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), last.Format("Jan 2"))
 		}
 	}
 
@@ -261,7 +259,7 @@ func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSerie
 			}
 		}
 
-		counterXYs[s.counter.Name] = xys
+		counterXYs[s.counter.ID] = xys
 	}
 
 	// ---
@@ -304,21 +302,21 @@ func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSerie
 	for i := range cs {
 		seriesIndices = append(seriesIndices, i)
 	}
-	sort.Slice(seriesIndices, func(i, j int) bool {
-		return cs[seriesIndices[i]].counter.Name < cs[seriesIndices[j]].counter.Name
+	slices.SortFunc(seriesIndices, func(i, j int) int {
+		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 	})
 
 	for _, si := range seriesIndices {
 		s := cs[si]
-		cn := s.counter.Name
-		xys := counterXYs[cn]
+		c := s.counter
+		xys := counterXYs[c.ID]
 
 		ln, err := plotter.NewLine(xys[earliestNonZeroHour:])
 		if err != nil {
 			return nil, "", errutil.With(err)
 		}
 
-		ci := crc32.ChecksumIEEE([]byte(cn))
+		ci := crc32.ChecksumIEEE([]byte(c.Name)) // using full name
 
 		ln.LineStyle.Color = plotutil.Color(int(ci))
 		ln.LineStyle.Dashes = plotutil.Dashes(int(ci))
@@ -326,7 +324,7 @@ func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSerie
 		ln.LineStyle.Width = vg.Points(2)
 
 		p.Add(ln)
-		p.Legend.Add(cn, ln)
+		p.Legend.Add(counterName(c), ln)
 	}
 
 	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
@@ -355,7 +353,7 @@ func dailyAltText(cs []counterSeriesV2) string {
 
 	var counterNames []string
 	for _, c := range cs {
-		counterNames = append(counterNames, c.counter.Name)
+		counterNames = append(counterNames, c.counter.Name) // using full name
 		for _, trv := range c.series {
 			fv := hhs[0].series[0].val
 
@@ -366,7 +364,7 @@ func dailyAltText(cs []counterSeriesV2) string {
 			}
 		}
 	}
-	sort.Strings(counterNames)
+	slices.Sort(counterNames)
 
 	if hhs[0].series[0].val == 0 {
 		return ""
@@ -381,17 +379,19 @@ func dailyAltText(cs []counterSeriesV2) string {
 	if len(hhs) == 1 {
 		hh := hhs[0]
 		hf := hh.series[0].tr.begin.Format("3 PM")
+		// using full name
 		out += fmt.Sprintf(" The highest hourly count was %d during the %s hour from the %s counter.", hh.series[0].val, hf, hh.counter.Name)
 	} else if len(hhs) > 1 {
 		hcn := make([]string, 0, len(hhs))
 		seen := make(map[string]bool)
 		for _, hh := range hhs {
+			// using full name
 			if !seen[hh.counter.Name] {
 				hcn = append(hcn, hh.counter.Name)
 				seen[hh.counter.Name] = true
 			}
 		}
-		sort.Strings(hcn)
+		slices.Sort(hcn)
 		counter := "counter"
 		if len(hcn) > 1 {
 			counter += "s"

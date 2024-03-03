@@ -1,10 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -198,7 +198,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		prevWeeksPostText += prevWeeksPostPrinter.Sprintf("%v: %v\n", trv.tr.end.Format("2006"), trv.val)
 	}
 
-	reverse(graph2TRVs)
+	slices.Reverse(graph2TRVs)
 	gr2, err := timeRangeBarGraph(graph2TRVs, prevWeeksPostPrinter.Sprintf("Total count for week %d by year", weekRangeNum), func(tr timeRange) string { return tr.end.Format("2006") })
 	if err != nil {
 		return nil, errutil.With(err)
@@ -266,14 +266,13 @@ func weekPostText(weekRange timeRange, cs []counterSeriesV2, records map[string]
 
 	p.Fprintf(&out, "Week review:\n\n%v%v #BikeHfx trips counted week ending %v\n\n", sum, recordSymbol(records["sum"]), weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
 
-	sort.Slice(presentIndices, func(i, j int) bool {
-		i, j = presentIndices[i], presentIndices[j]
-		return cs[i].counter.Name < cs[j].counter.Name
+	slices.SortFunc(presentIndices, func(i, j int) int {
+		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 	})
 	for _, i := range presentIndices {
 		c := cs[i]
 		v := c.series[len(c.series)-1].val
-		p.Fprintf(&out, "%v%v %v", v, recordSymbol(records[c.counter.ID]), c.counter.Name)
+		p.Fprintf(&out, "%v%v %v", v, recordSymbol(records[c.counter.ID]), counterName(c.counter))
 		if _, ok := presentIncompleteIndices[i]; ok {
 			last := c.last
 			if !c.lastNonZero.IsZero() {
@@ -298,9 +297,8 @@ func weekPostText(weekRange timeRange, cs []counterSeriesV2, records map[string]
 	}
 
 	if len(missingIndices) > 0 {
-		sort.Slice(missingIndices, func(i, j int) bool {
-			i, j = missingIndices[i], missingIndices[j]
-			return cs[i].counter.Name < cs[j].counter.Name
+		slices.SortFunc(missingIndices, func(i, j int) int {
+			return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 		})
 
 		p.Fprintln(&out)
@@ -311,7 +309,7 @@ func weekPostText(weekRange timeRange, cs []counterSeriesV2, records map[string]
 			if !c.lastNonZero.IsZero() {
 				last = c.lastNonZero
 			}
-			p.Fprintf(&out, "%v (%v)\n", c.counter.Name, last.Format("Jan 2"))
+			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), last.Format("Jan 2"))
 		}
 	}
 

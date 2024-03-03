@@ -1,10 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -183,7 +183,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		prevYearsPostText += prevYearsPostPrinter.Sprintf("%v: %v\n", trv.tr.begin.Format("2006"), trv.val)
 	}
 
-	reverse(graph2TRVs)
+	slices.Reverse(graph2TRVs)
 	gr2, err := timeRangeBarGraph(graph2TRVs, prevYearsPostPrinter.Sprintf("Total count by year"), func(tr timeRange) string { return tr.begin.Format("2006") })
 	if err != nil {
 		return nil, errutil.With(err)
@@ -251,14 +251,13 @@ func yearPostText(yearRange timeRange, cs []counterSeriesV2, records map[string]
 
 	p.Fprintf(&out, "Year review:\n\n%v%v #BikeHfx trips counted in %v\n\n", sum, recordSymbol(records["sum"]), yearRange.begin.Format("2006"))
 
-	sort.Slice(presentIndices, func(i, j int) bool {
-		i, j = presentIndices[i], presentIndices[j]
-		return cs[i].counter.Name < cs[j].counter.Name
+	slices.SortFunc(presentIndices, func(i, j int) int {
+		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 	})
 	for _, i := range presentIndices {
 		c := cs[i]
 		v := c.series[len(c.series)-1].val
-		p.Fprintf(&out, "%v%v %v", v, recordSymbol(records[c.counter.ID]), c.counter.Name)
+		p.Fprintf(&out, "%v%v %v", v, recordSymbol(records[c.counter.ID]), counterName(c.counter))
 		if _, ok := presentIncompleteIndices[i]; ok {
 			last := c.last
 			if !c.lastNonZero.IsZero() {
@@ -283,9 +282,8 @@ func yearPostText(yearRange timeRange, cs []counterSeriesV2, records map[string]
 	}
 
 	if len(missingIndices) > 0 {
-		sort.Slice(missingIndices, func(i, j int) bool {
-			i, j = missingIndices[i], missingIndices[j]
-			return cs[i].counter.Name < cs[j].counter.Name
+		slices.SortFunc(missingIndices, func(i, j int) int {
+			return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 		})
 
 		p.Fprintln(&out)
@@ -296,7 +294,7 @@ func yearPostText(yearRange timeRange, cs []counterSeriesV2, records map[string]
 			if !c.lastNonZero.IsZero() {
 				last = c.lastNonZero
 			}
-			p.Fprintf(&out, "%v (%v)\n", c.counter.Name, last.Format("Jan 2"))
+			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), last.Format("Jan 2"))
 		}
 	}
 

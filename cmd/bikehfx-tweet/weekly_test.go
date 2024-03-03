@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +16,9 @@ func TestWeeklyPostText(t *testing.T) {
 		var cs counterSeriesV2
 		cs.counter.ID = id
 		cs.counter.Name = name
+		if before, ok := strings.CutSuffix(name, " Short"); ok {
+			cs.counter.ShortName = before
+		}
 		if weekValue >= 0 {
 			cs.last = weekRange.end
 			cs.lastNonZero = weekRange.end
@@ -33,7 +37,7 @@ func TestWeeklyPostText(t *testing.T) {
 	t.Run("Complete", func(t *testing.T) {
 		cs := []counterSeriesV2{
 			makeSeries("b", "Banana", 456),
-			makeSeries("a", "Apple", 123),
+			makeSeries("a", "Apple Short", 123),
 			makeSeriesFull("d", "Dragon Fruit", 0, week.AddDate(0, -1, 0), time.Time{}),
 			makeSeriesFull("c", "Coconut", 0, week.AddDate(0, -1, 0), week.AddDate(0, 0, 7)),
 			makeSeriesFull("e", "Eggplant", 1, week.AddDate(0, 0, 3), week.AddDate(0, 0, 3)),

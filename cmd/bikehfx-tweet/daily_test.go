@@ -32,6 +32,9 @@ func TestDayPostText(t *testing.T) {
 		var cs counterSeriesV2
 		cs.counter.ID = id
 		cs.counter.Name = name
+		if before, ok := strings.CutSuffix(name, " Short"); ok {
+			cs.counter.ShortName = before
+		}
 		if dayValue >= 0 {
 			cs.last = day
 			cs.lastNonZero = day
@@ -54,7 +57,7 @@ func TestDayPostText(t *testing.T) {
 		}
 		cs := []counterSeriesV2{
 			makeSeries("b", "Banana", 456),
-			makeSeries("a", "Apple", 123),
+			makeSeries("a", "Apple Short", 123),
 			makeSeriesFull("d", "Dragon Fruit", 0, day.AddDate(0, -1, 0), time.Time{}),
 			makeSeriesFull("c", "Coconut", 0, day.AddDate(0, -1, 0), day.AddDate(0, 0, 7)),
 		}
@@ -88,7 +91,11 @@ func TestDayGraph(t *testing.T) {
 
 	makeSeries := func(name string, hourValues map[int]int) counterSeriesV2 {
 		var cs counterSeriesV2
+		cs.counter.ID = "id_" + name
 		cs.counter.Name = name
+		if before, ok := strings.CutSuffix(name, " Short"); ok {
+			cs.counter.ShortName = before
+		}
 		for _, h := range dayHours {
 			v, ok := hourValues[h.begin.Hour()]
 			if !ok {
@@ -103,7 +110,7 @@ func TestDayGraph(t *testing.T) {
 
 	t.Run("Basic", func(t *testing.T) {
 		cs := []counterSeriesV2{
-			makeSeries("Apple", map[int]int{0: 1, 8: 3, 16: 5, 23: 7}),
+			makeSeries("Apple Short", map[int]int{0: 1, 8: 3, 16: 5, 23: 7}),
 			makeSeries("Banana", map[int]int{1: 2, 9: 4, 17: 6, 22: 8}),
 		}
 

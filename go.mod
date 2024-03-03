@@ -14,9 +14,9 @@ require (
 	github.com/mattn/go-mastodon v0.0.6
 	github.com/peterbourgon/ff/v3 v3.3.1
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
-	golang.org/x/image v0.14.0
+	golang.org/x/image v0.15.0
 	golang.org/x/text v0.14.0
-	gonum.org/v1/plot v0.13.0
+	gonum.org/v1/plot v0.14.0
 )
 
 require (
