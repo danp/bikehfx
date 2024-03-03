@@ -4,7 +4,7 @@ go 1.22.0
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20230830042519-9caaa233dc6b
-	github.com/danp/counterbase v0.0.0-20230113140931-54dd5bb8eb2b
+	github.com/danp/counterbase v0.0.0-20240303171822-ec4a89e295ad
 	github.com/dghubble/oauth1 v0.7.2
 	github.com/dimchansky/utfbom v1.1.1
 	github.com/google/go-cmp v0.5.9
