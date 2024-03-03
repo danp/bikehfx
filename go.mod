@@ -1,6 +1,6 @@
 module github.com/danp/bikehfx
 
-go 1.21
+go 1.22.0
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20230830042519-9caaa233dc6b
