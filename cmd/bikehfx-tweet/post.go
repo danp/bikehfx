@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"regexp"
 	"sync"
 	"time"
 
@@ -362,10 +363,29 @@ func newBlueskyPoster(clientHost, handle, password string) (blueskyPoster, error
 	return blueskyPoster{client: xrpcc}, nil
 }
 
+var bskyHashtagRegex = regexp.MustCompile(`#[a-zA-Z0-9_]+`)
+
 func (b blueskyPoster) post(ctx context.Context, p post) (string, error) {
 	post := &bsky.FeedPost{
 		CreatedAt: time.Now().Format(time.RFC3339),
 		Text:      p.text,
+	}
+
+	for _, matches := range bskyHashtagRegex.FindAllIndex([]byte(p.text), -1) {
+		facet := &bsky.RichtextFacet{
+			Index: &bsky.RichtextFacet_ByteSlice{
+				ByteStart: int64(matches[0]),
+				ByteEnd:   int64(matches[1]),
+			},
+			Features: []*bsky.RichtextFacet_Features_Elem{
+				{
+					RichtextFacet_Tag: &bsky.RichtextFacet_Tag{
+						Tag: p.text[matches[0]+1 : matches[1]], // +1 to skip the #
+					},
+				},
+			},
+		}
+		post.Facets = append(post.Facets, facet)
 	}
 
 	if p.inReplyTo != "" {
