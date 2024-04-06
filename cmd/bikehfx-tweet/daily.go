@@ -306,6 +306,12 @@ func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSerie
 		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
 	})
 
+	type colorDash struct {
+		colorIdx int
+		dashIdx  int
+	}
+	colorDashes := make(map[colorDash]struct{})
+
 	for _, si := range seriesIndices {
 		s := cs[si]
 		c := s.counter
@@ -318,8 +324,25 @@ func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSerie
 
 		ci := crc32.ChecksumIEEE([]byte(c.Name)) // using full name
 
-		ln.LineStyle.Color = plotutil.Color(int(ci))
-		ln.LineStyle.Dashes = plotutil.Dashes(int(ci))
+		colorIdx := int(ci) % len(plotutil.DefaultColors)
+		dashIdx := int(ci) % len(plotutil.DefaultDashes)
+		var changedDashes bool
+		for {
+			if _, ok := colorDashes[colorDash{colorIdx, dashIdx}]; !ok {
+				colorDashes[colorDash{colorIdx, dashIdx}] = struct{}{}
+				break
+			}
+			if changedDashes {
+				colorIdx++
+				changedDashes = false
+				continue
+			}
+			dashIdx++
+			changedDashes = true
+		}
+
+		ln.LineStyle.Color = plotutil.DefaultColors[colorIdx]
+		ln.LineStyle.Dashes = plotutil.DefaultDashes[dashIdx]
 
 		ln.LineStyle.Width = vg.Points(2)
 

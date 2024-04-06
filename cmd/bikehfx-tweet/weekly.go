@@ -229,10 +229,50 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
+	const weeksPerYear = 52
+	// using AddDate(-1, ...) would not maintain week boundaries
+	pastThreeYears := timeRange{weekRange.begin.AddDate(0, 0, -(3*weeksPerYear)*7), weekRange.end}
+	for {
+		_, week := pastThreeYears.begin.ISOWeek()
+		if week == 1 {
+			break
+		}
+		pastThreeYears.begin = pastThreeYears.begin.AddDate(0, 0, -7)
+	}
+
+	pastThreeYearsWeeks := pastThreeYears.splitDate(0, 0, 7)
+	pastThreeYearsWeeksSeries, err := trq.query(ctx, pastThreeYearsWeeks...)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	var pastThreeYearsWeekCountsByYear = make(map[int]map[int]timeRangeValue)
+	for _, cs := range pastThreeYearsWeeksSeries {
+		for _, s := range cs.series {
+			year, week := s.tr.end.ISOWeek()
+			if pastThreeYearsWeekCountsByYear[year] == nil {
+				pastThreeYearsWeekCountsByYear[year] = make(map[int]timeRangeValue)
+			}
+			v, ok := pastThreeYearsWeekCountsByYear[year][week]
+			if !ok {
+				pastThreeYearsWeekCountsByYear[year][week] = s
+				continue
+			}
+			v.val += s.val
+			pastThreeYearsWeekCountsByYear[year][week] = v
+		}
+	}
+
+	gr3, err := yearWeekChart(pastThreeYearsWeekCountsByYear, "Total count by week for recent years")
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
 	posts = append(posts, post{
 		text: prevWeeksPostText,
 		media: []postMedia{
 			{b: gr2, altText: altText2},
+			{b: gr3, altText: "Chart with line per year's total count by week for recent years"},
 		},
 	})
 

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3"
 	"github.com/peterbourgon/ff/v3/ffcli"
+	"golang.org/x/exp/maps"
 	"golang.org/x/image/font/opentype"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/font"
@@ -412,6 +414,106 @@ func timeRangeBarGraph(trvs []timeRangeValue, title string, labeler func(timeRan
 	return b.Bytes(), nil
 }
 
+func yearWeekChart(trvs map[int]map[int]timeRangeValue, title string) ([]byte, error) {
+	if err := initGraph(); err != nil {
+		return nil, errutil.With(err)
+	}
+
+	p := plot.New()
+
+	p.Title.Text = title
+	p.Title.Padding = vg.Length(5)
+
+	p.Y.Min = 0
+	p.Y.Label.Text = "Count"
+	p.Y.Label.Padding = vg.Length(5)
+
+	p.X.Label.Text = "Week"
+
+	// We only deal with whole numbers so undo any use of strconv.FormatFloat.
+	origYMarker := p.Y.Tick.Marker
+	p.Y.Tick.Marker = plot.TickerFunc(func(min, max float64) []plot.Tick {
+		ticks := origYMarker.Ticks(min, max)
+		for i := range ticks {
+			if ticks[i].Label == "" {
+				continue
+			}
+			ticks[i].Label = strconv.Itoa(int(ticks[i].Value))
+		}
+		return ticks
+	})
+	p.Y.Tick.Marker = plot.TickerFunc(thousandTicker(p.Y.Tick.Marker))
+
+	years := maps.Keys(trvs)
+	slices.Sort(years)
+
+	thisYear := years[len(years)-1]
+
+	// use this year's week end dates as the x-axis labels
+	p.X.Tick.Marker = plot.TickerFunc(func(min, max float64) []plot.Tick {
+		var ticks []plot.Tick
+		var lastTickMonth time.Month
+		for week := 1; week <= 53; week++ {
+			weekEnd, err := isoYearWeekToDate(thisYear, week)
+			if err != nil {
+				return nil
+			}
+			t := plot.Tick{Value: float64(week)}
+			if lastTickMonth != weekEnd.Month() {
+				t.Label = weekEnd.Format("Jan")
+			}
+			lastTickMonth = weekEnd.Month()
+			ticks = append(ticks, t)
+		}
+		return ticks
+	})
+
+	p.Legend.Top = true
+
+	for _, year := range years {
+		weeks := trvs[year]
+		var pts plotter.XYs
+		for week := 1; week <= 53; week++ {
+			trv, ok := weeks[week]
+			if !ok {
+				continue
+			}
+			pts = append(pts, plotter.XY{X: float64(week), Y: float64(trv.val)})
+		}
+
+		ln, err := plotter.NewLine(pts)
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		ln.LineStyle.Color = plotutil.Color(year)
+		ln.LineStyle.Dashes = plotutil.Dashes(year)
+
+		ln.LineStyle.Width = vg.Points(2)
+
+		p.Add(ln)
+
+		p.Add(ln)
+		p.Legend.Add(fmt.Sprint(year), ln)
+	}
+
+	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	var b bytes.Buffer
+	if _, err := wt.WriteTo(&b); err != nil {
+		return nil, errutil.With(err)
+	}
+
+	if err := padImage(&b); err != nil {
+		return nil, errutil.With(err)
+	}
+
+	return b.Bytes(), nil
+}
+
 func thousandTicker(t plot.Ticker) func(min, max float64) []plot.Tick {
 	return func(min, max float64) []plot.Tick {
 		tt := t.Ticks(min, max)
@@ -635,4 +737,36 @@ func counterName(c directory.Counter) string {
 		return c.ShortName
 	}
 	return c.Name
+}
+
+// isoYearWeekToDate converts a year and ISO week number to the date of the last day of the week (Saturday).
+func isoYearWeekToDate(year int, week int) (time.Time, error) {
+	if week < 1 || week > 53 {
+		return time.Time{}, fmt.Errorf("week number must be between 1 and 53")
+	}
+
+	// Start with the first day of the year
+	startOfYear := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Find the ISO week day of the first day of the year (1 = Monday, 7 = Sunday)
+	isoWeekDay := startOfYear.Weekday()
+	if isoWeekDay == time.Sunday {
+		isoWeekDay = 7
+	} else {
+		isoWeekDay -= 1
+	}
+
+	// Calculate days to the first Thursday (start of the first ISO week)
+	daysToFirstThursday := (3 - int(isoWeekDay) + 7) % 7
+
+	// Calculate the start of the target ISO week
+	daysToWeek := daysToFirstThursday + (week-1)*7
+
+	// Adjust to get to the last day of the week (Saturday)
+	daysToWeek += 2
+
+	// Adjust to get to the last day of the week (Saturday)
+	firstDayOfWeek := startOfYear.AddDate(0, 0, daysToWeek)
+
+	return firstDayOfWeek, nil
 }
