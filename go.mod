@@ -1,6 +1,6 @@
 module github.com/danp/bikehfx
 
-go 1.22.0
+go 1.23
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20240308030717-06c2c155d0ca
@@ -13,7 +13,6 @@ require (
 	github.com/hexops/valast v1.4.4
 	github.com/mattn/go-mastodon v0.0.6
 	github.com/peterbourgon/ff/v3 v3.3.1
-	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 	golang.org/x/image v0.15.0
 	golang.org/x/text v0.16.0
 	gonum.org/v1/plot v0.14.0
@@ -73,6 +72,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect

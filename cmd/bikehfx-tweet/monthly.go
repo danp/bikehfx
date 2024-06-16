@@ -4,13 +4,13 @@ import (
 	"cmp"
 	"context"
 	"flag"
+	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
-	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -273,10 +273,8 @@ func monthPostText(monthRange timeRange, cs []counterSeriesV2, records map[strin
 		recordKinds[k] = struct{}{}
 	}
 	if len(recordKinds) > 0 {
-		keys := maps.Keys(recordKinds)
-		slices.Sort(keys)
 		p.Fprintln(&out)
-		for _, k := range keys {
+		for _, k := range slices.Sorted(maps.Keys(recordKinds)) {
 			p.Fprintln(&out, recordNote(k))
 		}
 	}

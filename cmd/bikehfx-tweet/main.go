@@ -12,6 +12,7 @@ import (
 	"image/draw"
 	"image/png"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,7 +27,6 @@ import (
 	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3"
 	"github.com/peterbourgon/ff/v3/ffcli"
-	"golang.org/x/exp/maps"
 	"golang.org/x/image/font/opentype"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/font"
@@ -444,8 +444,7 @@ func yearWeekChart(trvs map[int]map[int]timeRangeValue, title string) ([]byte, e
 	})
 	p.Y.Tick.Marker = plot.TickerFunc(thousandTicker(p.Y.Tick.Marker))
 
-	years := maps.Keys(trvs)
-	slices.Sort(years)
+	years := slices.Sorted(maps.Keys(trvs))
 
 	thisYear := years[len(years)-1]
 

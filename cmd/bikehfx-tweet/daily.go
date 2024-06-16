@@ -9,6 +9,7 @@ import (
 	"hash/crc32"
 	"image/color"
 	"log"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -18,7 +19,6 @@ import (
 	"github.com/danp/counterbase/directory"
 	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
-	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 	"gonum.org/v1/plot"
@@ -207,10 +207,8 @@ func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[str
 		recordKinds[k] = struct{}{}
 	}
 	if len(recordKinds) > 0 {
-		keys := maps.Keys(recordKinds)
-		slices.Sort(keys)
 		p.Fprintln(&out)
-		for _, k := range keys {
+		for _, k := range slices.Sorted(maps.Keys(recordKinds)) {
 			p.Fprintln(&out, recordNote(k))
 		}
 	}
