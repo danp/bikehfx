@@ -135,7 +135,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 
 	atg := altTextGenerator{
 		headlinePrinter: func(p *message.Printer, len int) string {
-			return p.Sprintf("Bar chart of counted cycling trips by month for last %d months.", len)
+			return p.Sprintf("Bar chart of bikes counted by month for last %d months.", len)
 		},
 		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
 			if pctChange == 0 {
@@ -149,7 +149,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 				moreOrFewer = "fewer"
 				pctChange *= -1
 			}
-			return p.Sprintf("The most recent month had %d trips counted, %d%% %s than the previous month.", cur, pctChange, moreOrFewer)
+			return p.Sprintf("The most recent month had %d bikes counted, %d%% %s than the previous month.", cur, pctChange, moreOrFewer)
 		},
 	}
 
@@ -191,7 +191,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 
 	atg2 := altTextGenerator{
 		headlinePrinter: func(p *message.Printer, len int) string {
-			return p.Sprintf("Bar chart of counted cycling trips for month %v over last %d years.", monthRange.begin.Format("Jan"), len)
+			return p.Sprintf("Bar chart of bikes counted for month %v over last %d years.", monthRange.begin.Format("Jan"), len)
 		},
 		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
 			if pctChange == 0 {
@@ -205,7 +205,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 				moreOrFewer = "fewer"
 				pctChange *= -1
 			}
-			return p.Sprintf("The most recent year had %d trips counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
+			return p.Sprintf("The most recent year had %d bikes counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
 		},
 	}
 
@@ -249,7 +249,7 @@ func monthPostText(monthRange timeRange, cs []counterSeriesV2, records map[strin
 		}
 	}
 
-	p.Fprintf(&out, "Month review:\n\n%v%v #BikeHfx trips counted in %v\n\n", sum, recordSymbol(records["sum"]), monthRange.begin.Format("Jan"))
+	p.Fprintf(&out, "Month review:\n\n%v%v #BikeHfx bikes counted in %v\n\n", sum, recordSymbol(records["sum"]), monthRange.begin.Format("Jan"))
 
 	slices.SortFunc(presentIndices, func(i, j int) int {
 		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))

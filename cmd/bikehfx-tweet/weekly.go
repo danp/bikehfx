@@ -150,7 +150,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 
 	atg := altTextGenerator{
 		headlinePrinter: func(p *message.Printer, len int) string {
-			return p.Sprintf("Bar chart of counted cycling trips by week for last %d weeks.", len)
+			return p.Sprintf("Bar chart of bikes counted by week for last %d weeks.", len)
 		},
 		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
 			if pctChange == 0 {
@@ -164,7 +164,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 				moreOrFewer = "fewer"
 				pctChange *= -1
 			}
-			return p.Sprintf("The most recent week had %d trips counted, %d%% %s than the previous week.", cur, pctChange, moreOrFewer)
+			return p.Sprintf("The most recent week had %d bikes counted, %d%% %s than the previous week.", cur, pctChange, moreOrFewer)
 		},
 	}
 
@@ -206,7 +206,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 
 	atg2 := altTextGenerator{
 		headlinePrinter: func(p *message.Printer, len int) string {
-			return p.Sprintf("Bar chart of counted cycling trips for week %d over last %d years.", weekRangeNum, len)
+			return p.Sprintf("Bar chart of bikes counted for week %d over last %d years.", weekRangeNum, len)
 		},
 		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
 			if pctChange == 0 {
@@ -220,7 +220,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 				moreOrFewer = "fewer"
 				pctChange *= -1
 			}
-			return p.Sprintf("The most recent year had %d trips counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
+			return p.Sprintf("The most recent year had %d bikes counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
 		},
 	}
 
@@ -304,7 +304,7 @@ func weekPostText(weekRange timeRange, cs []counterSeriesV2, records map[string]
 		}
 	}
 
-	p.Fprintf(&out, "Week review:\n\n%v%v #BikeHfx trips counted week ending %v\n\n", sum, recordSymbol(records["sum"]), weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
+	p.Fprintf(&out, "Week review:\n\n%v%v #BikeHfx bikes counted week ending %v\n\n", sum, recordSymbol(records["sum"]), weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
 
 	slices.SortFunc(presentIndices, func(i, j int) int {
 		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))

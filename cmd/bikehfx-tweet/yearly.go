@@ -135,7 +135,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 
 	atg := altTextGenerator{
 		headlinePrinter: func(p *message.Printer, len int) string {
-			return p.Sprintf("Bar chart of counted cycling trips by year for last %d years.", len)
+			return p.Sprintf("Bar chart of bikes counted by year for last %d years.", len)
 		},
 		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
 			if pctChange == 0 {
@@ -149,7 +149,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 				moreOrFewer = "fewer"
 				pctChange *= -1
 			}
-			return p.Sprintf("The most recent year had %d trips counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
+			return p.Sprintf("The most recent year had %d bikes counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
 		},
 	}
 
@@ -191,7 +191,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 
 	atg2 := altTextGenerator{
 		headlinePrinter: func(p *message.Printer, len int) string {
-			return p.Sprintf("Bar chart of counted cycling trips over last %d years.", len)
+			return p.Sprintf("Bar chart of bikes counted over last %d years.", len)
 		},
 		changePrinter: func(p *message.Printer, cur int, pctChange int) string {
 			if pctChange == 0 {
@@ -205,7 +205,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 				moreOrFewer = "fewer"
 				pctChange *= -1
 			}
-			return p.Sprintf("The most recent year had %d trips counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
+			return p.Sprintf("The most recent year had %d bikes counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
 		},
 	}
 
@@ -249,7 +249,7 @@ func yearPostText(yearRange timeRange, cs []counterSeriesV2, records map[string]
 		}
 	}
 
-	p.Fprintf(&out, "Year review:\n\n%v%v #BikeHfx trips counted in %v\n\n", sum, recordSymbol(records["sum"]), yearRange.begin.Format("2006"))
+	p.Fprintf(&out, "Year review:\n\n%v%v #BikeHfx bikes counted in %v\n\n", sum, recordSymbol(records["sum"]), yearRange.begin.Format("2006"))
 
 	slices.SortFunc(presentIndices, func(i, j int) int {
 		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))

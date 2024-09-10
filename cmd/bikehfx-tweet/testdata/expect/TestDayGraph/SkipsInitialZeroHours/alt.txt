@@ -1,1 +1,1 @@
-Line chart of bike trips by hour from the Apple and Banana counters. The highest hourly count was 6 during the 5 PM hour from the Banana counter.
+Line chart of bikes counted by hour from the Apple and Banana counters. The highest hourly count was 6 during the 5 PM hour from the Banana counter.

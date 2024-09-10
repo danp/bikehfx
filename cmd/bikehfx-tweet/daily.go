@@ -106,17 +106,17 @@ func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, wea
 		return nil, errutil.With(err)
 	}
 
-	var anyTrips bool
+	var anyBikes bool
 	for _, c := range cs {
 		for _, v := range c.series {
 			if v.val > 0 {
-				anyTrips = true
+				anyBikes = true
 				break
 			}
 		}
 	}
-	if !anyTrips {
-		log.Printf("no trips counted on %v", day)
+	if !anyBikes {
+		log.Printf("no bikes counted on %v", day)
 		return nil, nil
 	}
 
@@ -179,7 +179,7 @@ func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[str
 		missingIndices = append(missingIndices, i)
 	}
 
-	p.Fprintf(&out, "%v%v #BikeHfx trips counted %v\n\n", sum, recordSymbol(records["sum"]), day.Format("Mon Jan 2"))
+	p.Fprintf(&out, "%v%v #BikeHfx bikes counted %v\n\n", sum, recordSymbol(records["sum"]), day.Format("Mon Jan 2"))
 	if w.max != 0 {
 		p.Fprintf(&out, "%v/%v C", int(math.Ceil(w.max)), int(math.Floor(w.min)))
 		if w.rain > 0 {
@@ -395,7 +395,7 @@ func dailyAltText(cs []counterSeriesV2) string {
 	if len(counterNames) < 2 {
 		counters = "counter"
 	}
-	out := fmt.Sprintf("Line chart of bike trips by hour from the %s %s.", humanList(counterNames), counters)
+	out := fmt.Sprintf("Line chart of bikes counted by hour from the %s %s.", humanList(counterNames), counters)
 
 	if len(hhs) == 1 {
 		hh := hhs[0]
