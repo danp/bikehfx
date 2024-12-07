@@ -25,16 +25,16 @@ const (
 	recordKindYTD     recordKind = 2
 )
 
-type recordsChecker interface {
-	check(ctx context.Context, before time.Time, currentValues []counterSeries, width recordWidth) (map[string]recordKind, error)
+type recordser interface {
+	records(ctx context.Context, before time.Time, currentValues []counterSeries, width recordWidth) (map[string]recordKind, error)
 }
 
-type counterbaseRecordsChecker struct {
+type counterbaseRecordser struct {
 	qu  Querier
 	ccd cyclingCounterDirectory
 }
 
-func (r counterbaseRecordsChecker) check(ctx context.Context, before time.Time, currentValues []counterSeries, width recordWidth) (map[string]recordKind, error) {
+func (r counterbaseRecordser) records(ctx context.Context, before time.Time, currentValues []counterSeries, width recordWidth) (map[string]recordKind, error) {
 	boy := time.Date(before.Year(), 1, 1, 0, 0, 0, 0, before.Location())
 
 	recordRanges := map[recordKind]timeRange{

@@ -45,12 +45,12 @@ func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 			if len(days) == 0 {
 				days = []string{*day}
 			}
-			return dailyExec(ctx, days, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return dailyExec(ctx, days, rootConfig.trq, rootConfig.rc, rootConfig.tp)
 		},
 	}
 }
 
-func dailyExec(ctx context.Context, days []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, twt postThread) error {
+func dailyExec(ctx context.Context, days []string, trq counterbaseTimeRangeQuerier, rc recordser, tp threadPoster) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -63,15 +63,15 @@ func dailyExec(ctx context.Context, days []string, trq counterbaseTimeRangeQueri
 			return errutil.With(err)
 		}
 
-		ts, err := dayPost(ctx, dayt, trq, ecWeatherer{}, rc, pngDayGrapher{})
+		ps, err := dayPost(ctx, dayt, trq, ecWeatherer{}, rc, pngDayGrapher{})
 		if err != nil {
 			return errutil.With(err)
 		}
 
-		posts = append(posts, ts...)
+		posts = append(posts, ps...)
 	}
 
-	if _, err := twt.postThread(ctx, posts); err != nil {
+	if _, err := tp.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
@@ -92,7 +92,7 @@ type counterSeries struct {
 	series      []timeRangeValue
 }
 
-func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier, weatherer weatherer, recordsChecker recordsChecker, grapher dayGrapher) ([]post, error) {
+func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier, weatherer weatherer, recordser recordser, grapher dayGrapher) ([]post, error) {
 	dayRange := newTimeRangeDate(time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location()), 0, 0, 1)
 
 	cs, err := trq.query(ctx, dayRange)
@@ -114,7 +114,7 @@ func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier
 		return nil, nil
 	}
 
-	records, err := recordsChecker.check(ctx, day, cs, recordWidthDay)
+	records, err := recordser.records(ctx, day, cs, recordWidthDay)
 	if err != nil {
 		return nil, errutil.With(err)
 	}

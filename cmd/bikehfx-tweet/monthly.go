@@ -34,12 +34,12 @@ func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 				months = []string{*month}
 			}
 
-			return monthlyExec(ctx, months, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return monthlyExec(ctx, months, rootConfig.trq, rootConfig.rc, rootConfig.tp)
 		},
 	}
 }
 
-func monthlyExec(ctx context.Context, months []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, twt postThread) error {
+func monthlyExec(ctx context.Context, months []string, trq counterbaseTimeRangeQuerier, rc recordser, tp threadPoster) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -52,21 +52,21 @@ func monthlyExec(ctx context.Context, months []string, trq counterbaseTimeRangeQ
 			return errutil.With(err)
 		}
 
-		ts, err := monthPost(ctx, montht, trq, rc)
+		ps, err := monthPost(ctx, montht, trq, rc)
 		if err != nil {
 			return errutil.With(err)
 		}
 
-		posts = append(posts, ts...)
+		posts = append(posts, ps...)
 	}
 
-	if _, err := twt.postThread(ctx, posts); err != nil {
+	if _, err := tp.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
 }
 
-func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQuerier, rc recordsChecker) ([]post, error) {
+func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQuerier, rc recordser) ([]post, error) {
 	var posts []post
 
 	monthRange := newTimeRangeDate(time.Date(montht.Year(), montht.Month(), 1, 0, 0, 0, 0, montht.Location()), 0, 1, 0)
@@ -98,7 +98,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 			series:  c.series,
 		})
 	}
-	records, err := rc.check(ctx, monthRange.begin, cs, recordWidthMonth)
+	records, err := rc.records(ctx, monthRange.begin, cs, recordWidthMonth)
 	if err != nil {
 		return nil, errutil.With(err)
 	}

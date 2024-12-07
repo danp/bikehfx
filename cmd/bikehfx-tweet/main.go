@@ -62,23 +62,23 @@ func main() {
 
 	rootCfg.trq = counterbaseTimeRangeQuerier{rootCfg.ccd, qu}
 
-	rootCfg.rc = counterbaseRecordsChecker{
+	rootCfg.rc = counterbaseRecordser{
 		qu:  qu,
 		ccd: rootCfg.ccd,
 	}
 
-	var tt postThread
+	var tp threadPoster
 	if rootCfg.testMode {
-		tt = postThreader{t: &savePoster{}, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost}
+		tp = posterThreader{p: &savePoster{}, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost}
 	} else {
-		var mtt multiPostThreader
+		var mtt multiPosterThreader
 
 		if rootCfg.twitterAppSecret != "" {
 			tw, err := newTwitterPoster(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, postThreader{t: tw, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost})
+				mtt = append(mtt, posterThreader{p: tw, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
@@ -87,7 +87,7 @@ func main() {
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, postThreader{t: mt, inReplyTo: rootCfg.mastodonInReplyTo, initial: rootCfg.initialPost})
+				mtt = append(mtt, posterThreader{p: mt, inReplyTo: rootCfg.mastodonInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
@@ -96,7 +96,7 @@ func main() {
 			if err != nil {
 				log.Println(err)
 			} else {
-				mtt = append(mtt, postThreader{t: bt, inReplyTo: rootCfg.bskyInReplyTo, initial: rootCfg.initialPost})
+				mtt = append(mtt, posterThreader{p: bt, inReplyTo: rootCfg.bskyInReplyTo, initial: rootCfg.initialPost})
 			}
 		}
 
@@ -104,10 +104,10 @@ func main() {
 			log.Fatal("no post threaders configured")
 		}
 
-		tt = mtt
+		tp = mtt
 	}
 
-	rootCfg.twt = tt
+	rootCfg.tp = tp
 
 	if err := rootCmd.Run(context.Background()); err != nil {
 		log.Fatal(err)
@@ -141,8 +141,8 @@ type rootConfig struct {
 
 	ccd cyclingCounterDirectory
 	trq counterbaseTimeRangeQuerier
-	rc  recordsChecker
-	twt postThread
+	rc  recordser
+	tp  threadPoster
 }
 
 func newRootCmd() (*ffcli.Command, *rootConfig) {
@@ -224,10 +224,10 @@ func loadDirectory(src string) (Directory, error) {
 		return nil, errutil.New(errutil.Tags{"scheme": u.Scheme})
 	}
 
-	return &fakeDirectory{C: counters}, nil
+	return staticDirectory{C: counters}, nil
 }
 
-type postThread interface {
+type threadPoster interface {
 	postThread(context.Context, []post) ([]string, error)
 }
 
@@ -272,11 +272,11 @@ func initGraph() error {
 	return initGraphErr
 }
 
-type fakeDirectory struct {
+type staticDirectory struct {
 	C []directory.Counter
 }
 
-func (f fakeDirectory) Counters(ctx context.Context) ([]directory.Counter, error) {
+func (f staticDirectory) Counters(ctx context.Context) ([]directory.Counter, error) {
 	return f.C, nil
 }
 

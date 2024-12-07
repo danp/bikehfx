@@ -34,12 +34,12 @@ func newWeeklyCmd(rootConfig *rootConfig) *ffcli.Command {
 				weeks = []string{*week}
 			}
 
-			return weeklyExec(ctx, weeks, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return weeklyExec(ctx, weeks, rootConfig.trq, rootConfig.rc, rootConfig.tp)
 		},
 	}
 }
 
-func weeklyExec(ctx context.Context, weeks []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, pt postThread) error {
+func weeklyExec(ctx context.Context, weeks []string, trq counterbaseTimeRangeQuerier, rc recordser, tp threadPoster) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -60,13 +60,13 @@ func weeklyExec(ctx context.Context, weeks []string, trq counterbaseTimeRangeQue
 		posts = append(posts, ps...)
 	}
 
-	if _, err := pt.postThread(ctx, posts); err != nil {
+	if _, err := tp.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
 }
 
-func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuerier, rc recordsChecker) ([]post, error) {
+func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuerier, rc recordser) ([]post, error) {
 	var posts []post
 
 	weekRange := newTimeRangeDate(time.Date(weekt.Year(), weekt.Month(), weekt.Day()-int(weekt.Weekday()), 0, 0, 0, 0, weekt.Location()), 0, 0, 7)
@@ -113,7 +113,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 			series:  c.series,
 		})
 	}
-	records, err := rc.check(ctx, weekRange.begin, cs, recordWidthWeek)
+	records, err := rc.records(ctx, weekRange.begin, cs, recordWidthWeek)
 	if err != nil {
 		return nil, errutil.With(err)
 	}

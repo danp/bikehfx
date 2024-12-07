@@ -36,13 +36,13 @@ type post struct {
 	media []postMedia
 }
 
-type postThreader struct {
-	t         poster
+type posterThreader struct {
+	p         poster
 	inReplyTo string
 	initial   string
 }
 
-func (t postThreader) postThread(ctx context.Context, posts []post) ([]string, error) {
+func (t posterThreader) postThread(ctx context.Context, posts []post) ([]string, error) {
 	inReplyTo := t.inReplyTo
 
 	if t.initial != "" {
@@ -56,7 +56,7 @@ func (t postThreader) postThread(ctx context.Context, posts []post) ([]string, e
 	for i, p := range posts {
 		p.inReplyTo = inReplyTo
 
-		id, err := t.t.post(ctx, p)
+		id, err := t.p.post(ctx, p)
 		if err != nil {
 			return nil, errutil.With(err)
 		}
@@ -69,9 +69,9 @@ func (t postThreader) postThread(ctx context.Context, posts []post) ([]string, e
 	return ids, nil
 }
 
-type multiPostThreader []postThreader
+type multiPosterThreader []posterThreader
 
-func (m multiPostThreader) postThread(ctx context.Context, posts []post) ([]string, error) {
+func (m multiPosterThreader) postThread(ctx context.Context, posts []post) ([]string, error) {
 	var errs []error
 	var ids []string
 	for _, p := range m {

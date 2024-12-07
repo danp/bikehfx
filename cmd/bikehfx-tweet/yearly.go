@@ -34,12 +34,12 @@ func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 				years = []string{*year}
 			}
 
-			return yearlyExec(ctx, years, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return yearlyExec(ctx, years, rootConfig.trq, rootConfig.rc, rootConfig.tp)
 		},
 	}
 }
 
-func yearlyExec(ctx context.Context, years []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, twt postThread) error {
+func yearlyExec(ctx context.Context, years []string, trq counterbaseTimeRangeQuerier, rc recordser, tp threadPoster) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
@@ -52,21 +52,21 @@ func yearlyExec(ctx context.Context, years []string, trq counterbaseTimeRangeQue
 			return errutil.With(err)
 		}
 
-		ts, err := yearPost(ctx, yeart, trq, rc)
+		ps, err := yearPost(ctx, yeart, trq, rc)
 		if err != nil {
 			return errutil.With(err)
 		}
 
-		posts = append(posts, ts...)
+		posts = append(posts, ps...)
 	}
 
-	if _, err := twt.postThread(ctx, posts); err != nil {
+	if _, err := tp.postThread(ctx, posts); err != nil {
 		return errutil.With(err)
 	}
 	return nil
 }
 
-func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuerier, rc recordsChecker) ([]post, error) {
+func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuerier, rc recordser) ([]post, error) {
 	var posts []post
 
 	yearRange := newTimeRangeDate(time.Date(yeart.Year(), 1, 1, 0, 0, 0, 0, yeart.Location()), 1, 0, 0)
@@ -98,7 +98,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 			series:  c.series,
 		})
 	}
-	records, err := rc.check(ctx, yearRange.begin, cs, recordWidthYear)
+	records, err := rc.records(ctx, yearRange.begin, cs, recordWidthYear)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
