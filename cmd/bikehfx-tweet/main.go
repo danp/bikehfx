@@ -54,13 +54,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	rootCfg.ccd = cyclingeCounterDirectoryWrapper{dir: dir}
+	rootCfg.ccd = cyclingCounterDirectoryWrapper{dir: dir}
 
 	qu := &query.Client{
 		URL: rootCfg.queryURL,
 	}
 
-	rootCfg.trq = counterbaseTimeRangeQuerier{querier: qu}
+	rootCfg.trq = counterbaseTimeRangeQuerier{rootCfg.ccd, qu}
 
 	rootCfg.rc = counterbaseRecordsChecker{
 		qu:  qu,
@@ -140,7 +140,7 @@ type rootConfig struct {
 	testMode bool
 
 	ccd cyclingCounterDirectory
-	trq timeRangeQuerier
+	trq counterbaseTimeRangeQuerier
 	rc  recordsChecker
 	twt postThread
 }
@@ -526,63 +526,43 @@ func thousandTicker(t plot.Ticker) func(min, max float64) []plot.Tick {
 	}
 }
 
-type counterSeries struct {
-	counter directory.Counter
-	series  []timeRangeValue
+type counterbaseTimeRangeQuerier struct {
+	ccd     cyclingCounterDirectory
+	querier Querier
 }
 
-type timeRangeQuerier interface {
-	queryCounterSeries(ctx context.Context, counters []directory.Counter, trs []timeRange) ([]counterSeries, error)
-	last(ctx context.Context, counterID string, until time.Time) (all, nonZero time.Time, _ error)
-}
-
-type counterbaseTimeRangeQuerierV2 struct {
-	ccd cyclingCounterDirectory
-	trq timeRangeQuerier
-}
-
-func (q counterbaseTimeRangeQuerierV2) query(ctx context.Context, trs ...timeRange) ([]counterSeriesV2, error) {
+func (q counterbaseTimeRangeQuerier) query(ctx context.Context, trs ...timeRange) ([]counterSeries, error) {
 	counters, err := q.ccd.counters(ctx, timeRange{trs[0].begin, trs[len(trs)-1].end})
 	if err != nil {
 		return nil, errutil.With(err)
 	}
 
-	cs1, err := q.trq.queryCounterSeries(ctx, counters, trs)
+	cs, err := q.queryCounterSeries(ctx, counters, trs)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
 
-	var cs2 []counterSeriesV2
 	for _, counter := range counters {
-		last, lastNonZero, err := q.trq.last(ctx, counter.ID, trs[len(trs)-1].end)
+		last, lastNonZero, err := q.last(ctx, counter.ID, trs[len(trs)-1].end)
 		if err != nil {
 			return nil, errutil.With(err)
 		}
-		s2 := counterSeriesV2{
-			counter:     counter,
-			last:        last,
-			lastNonZero: lastNonZero,
-		}
-		for _, s1 := range cs1 {
-			if s1.counter.ID != counter.ID {
+		for i, s := range cs {
+			if s.counter.ID != counter.ID {
 				continue
 			}
-			s2.series = s1.series
+			cs[i].last = last
+			cs[i].lastNonZero = lastNonZero
 		}
-		cs2 = append(cs2, s2)
 	}
-	return cs2, nil
-}
-
-type counterbaseTimeRangeQuerier struct {
-	querier Querier
+	return cs, nil
 }
 
 func (q counterbaseTimeRangeQuerier) queryCounterSeries(ctx context.Context, counters []directory.Counter, trs []timeRange) ([]counterSeries, error) {
 	var out []counterSeries
 
 	for _, c := range counters {
-		trvs, err := q.query(ctx, c.ID, trs)
+		trvs, err := q.timeRangeValues(ctx, c.ID, trs)
 		if err != nil {
 			return nil, errutil.With(err)
 		}
@@ -598,7 +578,7 @@ func (q counterbaseTimeRangeQuerier) queryCounterSeries(ctx context.Context, cou
 	return out, nil
 }
 
-func (q counterbaseTimeRangeQuerier) query(ctx context.Context, counterID string, trs []timeRange) ([]timeRangeValue, error) {
+func (q counterbaseTimeRangeQuerier) timeRangeValues(ctx context.Context, counterID string, trs []timeRange) ([]timeRangeValue, error) {
 	var whens []string
 	for _, tr := range trs {
 		when := fmt.Sprintf("when time >= %d and time < %d then %d", tr.begin.Unix(), tr.end.Unix(), tr.begin.Unix())
@@ -662,11 +642,11 @@ type cyclingCounterDirectory interface {
 	counters(ctx context.Context, inService timeRange) ([]directory.Counter, error)
 }
 
-type cyclingeCounterDirectoryWrapper struct {
+type cyclingCounterDirectoryWrapper struct {
 	dir Directory
 }
 
-func (d cyclingeCounterDirectoryWrapper) counters(ctx context.Context, inService timeRange) ([]directory.Counter, error) {
+func (d cyclingCounterDirectoryWrapper) counters(ctx context.Context, inService timeRange) ([]directory.Counter, error) {
 	counters, err := d.dir.Counters(ctx)
 	if err != nil {
 		return nil, errutil.With(err)

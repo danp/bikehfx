@@ -12,8 +12,8 @@ func TestWeeklyPostText(t *testing.T) {
 	week := time.Date(2023, 7, 23, 0, 0, 0, 0, time.UTC)
 	weekRange := newTimeRangeDate(week, 0, 0, 7)
 
-	makeSeries := func(id, name string, weekValue int) counterSeriesV2 {
-		var cs counterSeriesV2
+	makeSeries := func(id, name string, weekValue int) counterSeries {
+		var cs counterSeries
 		cs.counter.ID = id
 		cs.counter.Name = name
 		if before, ok := strings.CutSuffix(name, " Short"); ok {
@@ -27,7 +27,7 @@ func TestWeeklyPostText(t *testing.T) {
 		return cs
 	}
 
-	makeSeriesFull := func(id, name string, dayValue int, last, lastNonZero time.Time) counterSeriesV2 {
+	makeSeriesFull := func(id, name string, dayValue int, last, lastNonZero time.Time) counterSeries {
 		cs := makeSeries(id, name, dayValue)
 		cs.last = last
 		cs.lastNonZero = lastNonZero
@@ -35,7 +35,7 @@ func TestWeeklyPostText(t *testing.T) {
 	}
 
 	t.Run("Complete", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("b", "Banana", 456),
 			makeSeries("a", "Apple Short", 123),
 			makeSeriesFull("d", "Dragon Fruit", 0, week.AddDate(0, -1, 0), time.Time{}),
@@ -53,7 +53,7 @@ func TestWeeklyPostText(t *testing.T) {
 	})
 
 	t.Run("Minimal", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("a", "Apple", 123),
 		}
 		got := weekPostText(weekRange, cs, nil)

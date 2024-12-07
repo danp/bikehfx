@@ -28,8 +28,8 @@ func TestDayPostText(t *testing.T) {
 	day := time.Date(2023, 7, 21, 0, 0, 0, 0, time.UTC)
 	dayRange := newTimeRangeDate(day, 0, 0, 1)
 
-	makeSeries := func(id, name string, dayValue int) counterSeriesV2 {
-		var cs counterSeriesV2
+	makeSeries := func(id, name string, dayValue int) counterSeries {
+		var cs counterSeries
 		cs.counter.ID = id
 		cs.counter.Name = name
 		if before, ok := strings.CutSuffix(name, " Short"); ok {
@@ -43,7 +43,7 @@ func TestDayPostText(t *testing.T) {
 		return cs
 	}
 
-	makeSeriesFull := func(id, name string, dayValue int, last, lastNonZero time.Time) counterSeriesV2 {
+	makeSeriesFull := func(id, name string, dayValue int, last, lastNonZero time.Time) counterSeries {
 		cs := makeSeries(id, name, dayValue)
 		cs.last = last
 		cs.lastNonZero = lastNonZero
@@ -55,7 +55,7 @@ func TestDayPostText(t *testing.T) {
 			max: 30.111, min: 20.222,
 			rain: 1.234, snow: 2.345,
 		}
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("b", "Banana", 456),
 			makeSeries("a", "Apple Short", 123),
 			makeSeriesFull("d", "Dragon Fruit", 0, day.AddDate(0, -1, 0), time.Time{}),
@@ -72,7 +72,7 @@ func TestDayPostText(t *testing.T) {
 	})
 
 	t.Run("Minimal", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("a", "Apple", 123),
 		}
 		got := dayPostText(day, weather{}, cs, nil)
@@ -89,8 +89,8 @@ func TestDayGraph(t *testing.T) {
 
 	dayHours := newTimeRangeDate(time.Date(2021, 3, 26, 0, 0, 0, 0, day.Location()), 0, 0, 1).split(time.Hour)
 
-	makeSeries := func(name string, hourValues map[int]int) counterSeriesV2 {
-		var cs counterSeriesV2
+	makeSeries := func(name string, hourValues map[int]int) counterSeries {
+		var cs counterSeries
 		cs.counter.ID = "id_" + name
 		cs.counter.Name = name
 		if before, ok := strings.CutSuffix(name, " Short"); ok {
@@ -109,7 +109,7 @@ func TestDayGraph(t *testing.T) {
 	var g pngDayGrapher
 
 	t.Run("Basic", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("Apple Short", map[int]int{0: 1, 8: 3, 16: 5, 23: 7}),
 			makeSeries("Banana", map[int]int{1: 2, 9: 4, 17: 6, 22: 8}),
 		}
@@ -124,7 +124,7 @@ func TestDayGraph(t *testing.T) {
 	})
 
 	t.Run("SkipsInitialZeroHours", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("Apple", map[int]int{8: 3, 16: 5}),
 			makeSeries("Banana", map[int]int{9: 4, 17: 6}),
 		}
@@ -139,7 +139,7 @@ func TestDayGraph(t *testing.T) {
 	})
 
 	t.Run("SortsNames", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("Banana", map[int]int{9: 2}),
 			makeSeries("Apple", map[int]int{8: 1}),
 		}
@@ -154,7 +154,7 @@ func TestDayGraph(t *testing.T) {
 	})
 
 	t.Run("MultiHighestSingleCounter", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("Apple", map[int]int{8: 1}),
 			makeSeries("Banana", map[int]int{9: 2, 10: 2}),
 		}
@@ -169,7 +169,7 @@ func TestDayGraph(t *testing.T) {
 	})
 
 	t.Run("MultiHighestMultiCounter", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("Apple", map[int]int{8: 1}),
 			makeSeries("Banana", map[int]int{9: 1}),
 		}
@@ -184,7 +184,7 @@ func TestDayGraph(t *testing.T) {
 	})
 
 	t.Run("SingleCounter", func(t *testing.T) {
-		cs := []counterSeriesV2{
+		cs := []counterSeries{
 			makeSeries("Apple", map[int]int{8: 1}),
 		}
 

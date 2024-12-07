@@ -34,18 +34,16 @@ func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 				months = []string{*month}
 			}
 
-			return monthlyExec(ctx, months, rootConfig.ccd, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return monthlyExec(ctx, months, rootConfig.trq, rootConfig.rc, rootConfig.twt)
 		},
 	}
 }
 
-func monthlyExec(ctx context.Context, months []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt postThread) error {
+func monthlyExec(ctx context.Context, months []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, twt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
 	}
-
-	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
 	var posts []post
 	for _, month := range months {
@@ -54,7 +52,7 @@ func monthlyExec(ctx context.Context, months []string, ccd cyclingCounterDirecto
 			return errutil.With(err)
 		}
 
-		ts, err := monthPost(ctx, montht, trq2, rc)
+		ts, err := monthPost(ctx, montht, trq, rc)
 		if err != nil {
 			return errutil.With(err)
 		}
@@ -68,7 +66,7 @@ func monthlyExec(ctx context.Context, months []string, ccd cyclingCounterDirecto
 	return nil
 }
 
-func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]post, error) {
+func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQuerier, rc recordsChecker) ([]post, error) {
 	var posts []post
 
 	monthRange := newTimeRangeDate(time.Date(montht.Year(), montht.Month(), 1, 0, 0, 0, 0, montht.Location()), 0, 1, 0)
@@ -80,7 +78,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 		monthRanges = append(monthRanges, pw)
 	}
 
-	var monthsSeries [][]counterSeriesV2
+	var monthsSeries [][]counterSeries
 	for _, wr := range monthRanges {
 		monthSeries, err := trq.query(ctx, wr)
 		if err != nil {
@@ -90,17 +88,17 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 		monthsSeries = append(monthsSeries, monthSeries)
 	}
 
-	var cs1 []counterSeries
+	var cs []counterSeries
 	for _, c := range monthsSeries[0] {
 		if len(c.series) == 0 {
 			continue
 		}
-		cs1 = append(cs1, counterSeries{
+		cs = append(cs, counterSeries{
 			counter: c.counter,
 			series:  c.series,
 		})
 	}
-	records, err := rc.check(ctx, monthRange.begin, cs1, recordWidthMonth)
+	records, err := rc.check(ctx, monthRange.begin, cs, recordWidthMonth)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -224,7 +222,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 	return posts, nil
 }
 
-func monthPostText(monthRange timeRange, cs []counterSeriesV2, records map[string]recordKind) string {
+func monthPostText(monthRange timeRange, cs []counterSeries, records map[string]recordKind) string {
 	var out strings.Builder
 
 	p := message.NewPrinter(language.English)

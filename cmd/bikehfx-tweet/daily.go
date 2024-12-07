@@ -45,18 +45,16 @@ func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 			if len(days) == 0 {
 				days = []string{*day}
 			}
-			return dailyExec(ctx, days, rootConfig.ccd, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return dailyExec(ctx, days, rootConfig.trq, rootConfig.rc, rootConfig.twt)
 		},
 	}
 }
 
-func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt postThread) error {
+func dailyExec(ctx context.Context, days []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, twt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
 	}
-
-	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
 	var posts []post
 	for _, day := range days {
@@ -65,7 +63,7 @@ func dailyExec(ctx context.Context, days []string, ccd cyclingCounterDirectory, 
 			return errutil.With(err)
 		}
 
-		ts, err := dayPost(ctx, dayt, trq2, ecWeatherer{}, rc, pngDayGrapher{})
+		ts, err := dayPost(ctx, dayt, trq, ecWeatherer{}, rc, pngDayGrapher{})
 		if err != nil {
 			return errutil.With(err)
 		}
@@ -84,24 +82,20 @@ type weatherer interface {
 }
 
 type dayGrapher interface {
-	graph(ctx context.Context, day time.Time, cs []counterSeriesV2) (_ []byte, altText string, _ error)
+	graph(ctx context.Context, day time.Time, cs []counterSeries) (_ []byte, altText string, _ error)
 }
 
-type counterSeriesV2 struct {
+type counterSeries struct {
 	counter     directory.Counter
 	last        time.Time
 	lastNonZero time.Time
 	series      []timeRangeValue
 }
 
-type timeRangeQuerierV2 interface {
-	query(ctx context.Context, tr ...timeRange) ([]counterSeriesV2, error)
-}
-
-func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, weatherer weatherer, recordsChecker recordsChecker, grapher dayGrapher) ([]post, error) {
+func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier, weatherer weatherer, recordsChecker recordsChecker, grapher dayGrapher) ([]post, error) {
 	dayRange := newTimeRangeDate(time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location()), 0, 0, 1)
 
-	cs, err := querier.query(ctx, dayRange)
+	cs, err := trq.query(ctx, dayRange)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -120,17 +114,7 @@ func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, wea
 		return nil, nil
 	}
 
-	var cs1 []counterSeries
-	for _, c := range cs {
-		if len(c.series) == 0 {
-			continue
-		}
-		cs1 = append(cs1, counterSeries{
-			counter: c.counter,
-			series:  c.series,
-		})
-	}
-	records, err := recordsChecker.check(ctx, day, cs1, recordWidthDay)
+	records, err := recordsChecker.check(ctx, day, cs, recordWidthDay)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -144,7 +128,7 @@ func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, wea
 	text := dayPostText(day, w, cs, records)
 
 	dayHours := dayRange.split(time.Hour)
-	hourSeries, err := querier.query(ctx, dayHours...)
+	hourSeries, err := trq.query(ctx, dayHours...)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -161,7 +145,7 @@ func dayPost(ctx context.Context, day time.Time, querier timeRangeQuerierV2, wea
 	}, nil
 }
 
-func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[string]recordKind) string {
+func dayPostText(day time.Time, w weather, cs []counterSeries, records map[string]recordKind) string {
 	var out strings.Builder
 
 	p := message.NewPrinter(language.English)
@@ -235,7 +219,7 @@ func dayPostText(day time.Time, w weather, cs []counterSeriesV2, records map[str
 
 type pngDayGrapher struct{}
 
-func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSeriesV2) ([]byte, string, error) {
+func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSeries) ([]byte, string, error) {
 	counterXYs := make(map[string]plotter.XYs)
 
 	earliestNonZeroHour := 24
@@ -365,7 +349,7 @@ func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSerie
 	return b.Bytes(), dailyAltText(cs), nil
 }
 
-func dailyAltText(cs []counterSeriesV2) string {
+func dailyAltText(cs []counterSeries) string {
 	if len(cs) == 0 {
 		return ""
 	}

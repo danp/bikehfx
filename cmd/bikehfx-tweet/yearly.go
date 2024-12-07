@@ -34,18 +34,16 @@ func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 				years = []string{*year}
 			}
 
-			return yearlyExec(ctx, years, rootConfig.ccd, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return yearlyExec(ctx, years, rootConfig.trq, rootConfig.rc, rootConfig.twt)
 		},
 	}
 }
 
-func yearlyExec(ctx context.Context, years []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, twt postThread) error {
+func yearlyExec(ctx context.Context, years []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, twt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
 	}
-
-	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
 	var posts []post
 	for _, year := range years {
@@ -54,7 +52,7 @@ func yearlyExec(ctx context.Context, years []string, ccd cyclingCounterDirectory
 			return errutil.With(err)
 		}
 
-		ts, err := yearPost(ctx, yeart, trq2, rc)
+		ts, err := yearPost(ctx, yeart, trq, rc)
 		if err != nil {
 			return errutil.With(err)
 		}
@@ -68,7 +66,7 @@ func yearlyExec(ctx context.Context, years []string, ccd cyclingCounterDirectory
 	return nil
 }
 
-func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]post, error) {
+func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuerier, rc recordsChecker) ([]post, error) {
 	var posts []post
 
 	yearRange := newTimeRangeDate(time.Date(yeart.Year(), 1, 1, 0, 0, 0, 0, yeart.Location()), 1, 0, 0)
@@ -80,7 +78,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		yearRanges = append(yearRanges, pw)
 	}
 
-	var yearsSeries [][]counterSeriesV2
+	var yearsSeries [][]counterSeries
 	for _, wr := range yearRanges {
 		yearSeries, err := trq.query(ctx, wr)
 		if err != nil {
@@ -90,17 +88,17 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		yearsSeries = append(yearsSeries, yearSeries)
 	}
 
-	var cs1 []counterSeries
+	var cs []counterSeries
 	for _, c := range yearsSeries[0] {
 		if len(c.series) == 0 {
 			continue
 		}
-		cs1 = append(cs1, counterSeries{
+		cs = append(cs, counterSeries{
 			counter: c.counter,
 			series:  c.series,
 		})
 	}
-	records, err := rc.check(ctx, yearRange.begin, cs1, recordWidthYear)
+	records, err := rc.check(ctx, yearRange.begin, cs, recordWidthYear)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -224,7 +222,7 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 	return posts, nil
 }
 
-func yearPostText(yearRange timeRange, cs []counterSeriesV2, records map[string]recordKind) string {
+func yearPostText(yearRange timeRange, cs []counterSeries, records map[string]recordKind) string {
 	var out strings.Builder
 
 	p := message.NewPrinter(language.English)

@@ -34,18 +34,16 @@ func newWeeklyCmd(rootConfig *rootConfig) *ffcli.Command {
 				weeks = []string{*week}
 			}
 
-			return weeklyExec(ctx, weeks, rootConfig.ccd, rootConfig.trq, rootConfig.rc, rootConfig.twt)
+			return weeklyExec(ctx, weeks, rootConfig.trq, rootConfig.rc, rootConfig.twt)
 		},
 	}
 }
 
-func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory, trq timeRangeQuerier, rc recordsChecker, pt postThread) error {
+func weeklyExec(ctx context.Context, weeks []string, trq counterbaseTimeRangeQuerier, rc recordsChecker, pt postThread) error {
 	loc, err := time.LoadLocation("America/Halifax")
 	if err != nil {
 		return errutil.With(err)
 	}
-
-	trq2 := counterbaseTimeRangeQuerierV2{ccd, trq}
 
 	var posts []post
 	for _, week := range weeks {
@@ -54,7 +52,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 			return errutil.With(err)
 		}
 
-		ps, err := weekPost(ctx, weekt, trq2, rc)
+		ps, err := weekPost(ctx, weekt, trq, rc)
 		if err != nil {
 			return errutil.With(err)
 		}
@@ -68,7 +66,7 @@ func weeklyExec(ctx context.Context, weeks []string, ccd cyclingCounterDirectory
 	return nil
 }
 
-func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuerierV2, rc recordsChecker) ([]post, error) {
+func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuerier, rc recordsChecker) ([]post, error) {
 	var posts []post
 
 	weekRange := newTimeRangeDate(time.Date(weekt.Year(), weekt.Month(), weekt.Day()-int(weekt.Weekday()), 0, 0, 0, 0, weekt.Location()), 0, 0, 7)
@@ -95,7 +93,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		weekRanges = append(weekRanges, pw)
 	}
 
-	var weeksSeries [][]counterSeriesV2
+	var weeksSeries [][]counterSeries
 	for _, wr := range weekRanges {
 		weekSeries, err := trq.query(ctx, wr)
 		if err != nil {
@@ -105,17 +103,17 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		weeksSeries = append(weeksSeries, weekSeries)
 	}
 
-	var cs1 []counterSeries
+	var cs []counterSeries
 	for _, c := range weeksSeries[0] {
 		if len(c.series) == 0 {
 			continue
 		}
-		cs1 = append(cs1, counterSeries{
+		cs = append(cs, counterSeries{
 			counter: c.counter,
 			series:  c.series,
 		})
 	}
-	records, err := rc.check(ctx, weekRange.begin, cs1, recordWidthWeek)
+	records, err := rc.check(ctx, weekRange.begin, cs, recordWidthWeek)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
@@ -279,7 +277,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 	return posts, nil
 }
 
-func weekPostText(weekRange timeRange, cs []counterSeriesV2, records map[string]recordKind) string {
+func weekPostText(weekRange timeRange, cs []counterSeries, records map[string]recordKind) string {
 	var out strings.Builder
 
 	p := message.NewPrinter(language.English)
