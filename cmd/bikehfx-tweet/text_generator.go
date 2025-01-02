@@ -12,7 +12,13 @@ type altTextGenerator struct {
 
 func (a altTextGenerator) text(trvs []timeRangeValue) (string, error) {
 	pr := message.NewPrinter(language.English)
-	altText := a.headlinePrinter(pr, len(trvs))
+	var nonZeroLen int
+	for _, trv := range trvs {
+		if trv.val != 0 {
+			nonZeroLen++
+		}
+	}
+	altText := a.headlinePrinter(pr, nonZeroLen)
 	if len(trvs) > 1 {
 		cur := float64(trvs[len(trvs)-1].val)
 		prev := float64(trvs[len(trvs)-2].val)

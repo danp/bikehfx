@@ -445,20 +445,17 @@ func (s *savePoster) post(ctx context.Context, p post) (string, error) {
 	defer s.mu.Unlock()
 
 	s.id++ // avoid 0
-	id := fmt.Sprint(s.id)
+	id := fmt.Sprintf("%02d", s.id)
 
-	prefix := fmt.Sprintf("post-%v", id)
+	prefix := fmt.Sprintf("post-%v.post", id)
 
-	if p.inReplyTo != "" {
-		p.text = "in reply to " + p.inReplyTo + ": " + p.text
-	}
-
-	if err := os.WriteFile(prefix+".txt", []byte(p.text), 0600); err != nil {
+	if err := os.WriteFile(prefix, []byte(p.text), 0600); err != nil {
 		return "", errutil.With(err)
 	}
 
 	for mi, m := range p.media {
-		mf, err := os.Create(fmt.Sprintf("%s-media-%d.png", prefix, mi))
+		imagePrefix := fmt.Sprintf("%s.image-%02d", prefix, mi)
+		mf, err := os.Create(imagePrefix)
 		if err != nil {
 			return "", errutil.With(err)
 		}
@@ -468,7 +465,8 @@ func (s *savePoster) post(ctx context.Context, p post) (string, error) {
 			return "", errutil.With(err)
 		}
 
-		if err := os.WriteFile(fmt.Sprintf("%s-media-%d.txt", prefix, mi), []byte(m.altText), 0600); err != nil {
+		imageAlt := fmt.Sprintf("%s.alt", imagePrefix)
+		if err := os.WriteFile(imageAlt, []byte(m.altText), 0600); err != nil {
 			return "", errutil.With(err)
 		}
 	}

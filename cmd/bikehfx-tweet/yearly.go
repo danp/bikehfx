@@ -4,11 +4,13 @@ import (
 	"cmp"
 	"context"
 	"flag"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/danp/counterbase/directory"
 	"github.com/graxinc/errutil"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/text/language"
@@ -165,9 +167,9 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 
 	var graph2TRVs []timeRangeValue
 	for i, wr := range yearRanges {
-		ws := yearsSeries[i]
+		ys := yearsSeries[i]
 		var sum int
-		for _, cs := range ws {
+		for _, cs := range ys {
 			for _, s := range cs.series {
 				sum += s.val
 			}
@@ -218,6 +220,150 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 			{b: gr2, altText: altText2},
 		},
 	})
+
+	const weeksPerYear = 52
+	// using AddDate(-1, ...) would not maintain week boundaries
+	pastThreeYears := timeRange{yearRange.begin.AddDate(0, 0, -(3*weeksPerYear)*7), yearRange.end}
+	for pastThreeYears.end.Weekday() != time.Sunday { // find last complete week
+		pastThreeYears.end = pastThreeYears.end.AddDate(0, 0, -1)
+	}
+	for {
+		_, week := pastThreeYears.begin.ISOWeek()
+		if week == 1 {
+			break
+		}
+		pastThreeYears.begin = pastThreeYears.begin.AddDate(0, 0, -7)
+	}
+	if pastThreeYears.begin.Weekday() >= time.Thursday {
+		// get to sunday
+		pastThreeYears.begin = pastThreeYears.begin.AddDate(0, 0, 7-int(pastThreeYears.begin.Weekday()))
+	} else {
+		// get to sunday
+		pastThreeYears.begin = pastThreeYears.begin.AddDate(0, 0, -int(pastThreeYears.begin.Weekday()))
+	}
+
+	pastThreeYearsWeeks := pastThreeYears.splitDate(0, 0, 7)
+	pastThreeYearsWeeksSeries, err := trq.query(ctx, pastThreeYearsWeeks...)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	countersByID := make(map[string]directory.Counter)
+	pastThreeYearsWeekCountsByCounterByYear := make(map[string]map[int]map[int]timeRangeValue)
+	for _, cs := range pastThreeYearsWeeksSeries {
+		countersByID[cs.counter.ID] = cs.counter
+		pastThreeYearsWeekCountsByYear := make(map[int]map[int]timeRangeValue)
+		for _, s := range cs.series {
+			year, week := s.tr.end.ISOWeek()
+			if pastThreeYearsWeekCountsByYear[year] == nil {
+				pastThreeYearsWeekCountsByYear[year] = make(map[int]timeRangeValue)
+			}
+			v, ok := pastThreeYearsWeekCountsByYear[year][week]
+			if !ok {
+				pastThreeYearsWeekCountsByYear[year][week] = s
+				continue
+			}
+			v.val += s.val
+			pastThreeYearsWeekCountsByYear[year][week] = v
+		}
+		pastThreeYearsWeekCountsByCounterByYear[cs.counter.ID] = pastThreeYearsWeekCountsByYear
+	}
+
+	counterIDs := slices.Collect(maps.Keys(countersByID))
+	slices.SortFunc(counterIDs, func(a, b string) int {
+		return cmp.Compare(counterName(countersByID[a]), counterName(countersByID[b]))
+	})
+
+	for _, id := range counterIDs {
+		c := countersByID[id]
+
+		var graph2TRVs []timeRangeValue
+		for i, wr := range yearRanges {
+			ys := yearsSeries[i]
+			var sum int
+			for _, cs := range ys {
+				if cs.counter.ID != id {
+					continue
+				}
+				for _, s := range cs.series {
+					sum += s.val
+				}
+			}
+			graph2TRVs = append(graph2TRVs, timeRangeValue{tr: wr, val: sum})
+		}
+
+		prevYearsPostPrinter := message.NewPrinter(language.English)
+		prevYearsPostText := prevYearsPostPrinter.Sprintf("Previous year counts for %v:\n\n", counterName(c))
+		for _, trv := range graph2TRVs {
+			if trv.val == 0 {
+				continue
+			}
+			prevYearsPostText += prevYearsPostPrinter.Sprintf("%v: %v\n", trv.tr.begin.Format("2006"), trv.val)
+		}
+
+		slices.Reverse(graph2TRVs)
+		gr2, err := timeRangeBarGraph(graph2TRVs, prevYearsPostPrinter.Sprintf("Total count by year for %v", counterName(c)), func(tr timeRange) string { return tr.begin.Format("2006") })
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		atg2 := altTextGenerator{
+			headlinePrinter: func(p *message.Printer, len int) string {
+				return p.Sprintf("Bar chart of bikes counted for %v over last %d years.", counterName(c), len)
+			},
+			changePrinter: func(p *message.Printer, cur int, pctChange int) string {
+				if pctChange == 0 {
+					return p.Sprintf("The most recent years's count of %d is about the same as the previous year.", cur)
+				}
+
+				var moreOrFewer string
+				if pctChange > 0 {
+					moreOrFewer = "more"
+				} else {
+					moreOrFewer = "fewer"
+					pctChange *= -1
+				}
+				return p.Sprintf("The most recent year had %d bikes counted, %d%% %s than the previous year.", cur, pctChange, moreOrFewer)
+			},
+		}
+
+		altText2, err := atg2.text(graph2TRVs)
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		pastThreeYearsWeekCountsByYear := pastThreeYearsWeekCountsByCounterByYear[id]
+		years := slices.Collect(maps.Keys(pastThreeYearsWeekCountsByYear))
+		slices.Sort(years)
+	InitialZeroesClean:
+		for _, year := range years {
+			weekCounts := pastThreeYearsWeekCountsByYear[year]
+			weeks := slices.Collect(maps.Keys(weekCounts))
+			slices.Sort(weeks)
+			for _, week := range weeks {
+				if weekCounts[week].val > 0 {
+					break InitialZeroesClean
+				}
+				delete(weekCounts, week)
+				if len(weekCounts) == 0 {
+					delete(pastThreeYearsWeekCountsByYear, year)
+					break
+				}
+			}
+		}
+		gr3, err := yearWeekChart(pastThreeYearsWeekCountsByYear, fmt.Sprintf("Total count by week for %v for recent years", counterName(c)))
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		posts = append(posts, post{
+			text: prevYearsPostText,
+			media: []postMedia{
+				{b: gr2, altText: altText2},
+				{b: gr3, altText: fmt.Sprintf("Chart with line per year's total count by week for %v for recent years.", counterName(c))},
+			},
+		})
+	}
 
 	return posts, nil
 }
