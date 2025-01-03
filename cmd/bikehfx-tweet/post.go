@@ -9,8 +9,10 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -367,7 +369,7 @@ var bskyHashtagRegex = regexp.MustCompile(`#[a-zA-Z0-9_]+`)
 
 func (b blueskyPoster) post(ctx context.Context, p post) (string, error) {
 	post := &bsky.FeedPost{
-		CreatedAt: time.Now().Format(time.RFC3339),
+		CreatedAt: time.Now().Format(time.RFC3339Nano),
 		Text:      p.text,
 	}
 
@@ -389,11 +391,11 @@ func (b blueskyPoster) post(ctx context.Context, p post) (string, error) {
 	}
 
 	if p.inReplyTo != "" {
-		var ref atproto.RepoStrongRef
-		if err := json.Unmarshal([]byte(p.inReplyTo), &ref); err != nil {
+		root, parent, err := b.resolveRef(ctx, p.inReplyTo)
+		if err != nil {
 			return "", errutil.With(err)
 		}
-		post.Reply = &bsky.FeedPost_ReplyRef{Parent: &ref, Root: &ref}
+		post.Reply = &bsky.FeedPost_ReplyRef{Root: root, Parent: parent}
 	}
 
 	if len(p.media) > 0 {
@@ -422,17 +424,56 @@ func (b blueskyPoster) post(ctx context.Context, p post) (string, error) {
 	if err != nil {
 		return "", errutil.With(err)
 	}
+	return resp.Uri, nil
+}
 
-	ref := &atproto.RepoStrongRef{
-		Cid: resp.Cid,
-		Uri: resp.Uri,
+func (b blueskyPoster) resolveRef(ctx context.Context, ref string) (root, parent *atproto.RepoStrongRef, _ error) {
+	if len(ref) == 0 {
+		return nil, nil, nil
 	}
-	refB, err := json.Marshal(ref)
+
+	// at:// uri to parent post (at://hfx.bike/app.bsky.feed.post/3lerr7lve2m22)
+	// web url to parent post (https://bsky.app/profile/stats.hfx.bike/post/3lerr7lve2m22)
+
+	if !strings.HasPrefix(ref, "at://") {
+		u, err := url.Parse(ref)
+		if err != nil {
+			return nil, nil, errutil.With(err)
+		}
+		if u.Host != "bsky.app" {
+			return nil, nil, errutil.New(errutil.Tags{"msg": "invalid host", "host": u.Host})
+		}
+		pathParts := strings.Split(u.Path, "/")
+		if len(pathParts) != 5 {
+			return nil, nil, errutil.New(errutil.Tags{"msg": "invalid path", "path": u.Path})
+		}
+		if pathParts[1] != "profile" && pathParts[3] != "post" {
+			return nil, nil, errutil.New(errutil.Tags{"msg": "invalid path", "path": u.Path})
+		}
+
+		profile := pathParts[2]
+		recordID := pathParts[4]
+
+		ref = "at://" + profile + "/app.bsky.feed.post/" + recordID
+	}
+
+	resp, err := bsky.FeedGetPostThread(ctx, b.client, 1, 1, ref)
 	if err != nil {
-		return "", errutil.With(err)
+		return nil, nil, errutil.With(err)
 	}
 
-	return string(refB), nil
+	post := resp.Thread.FeedDefs_ThreadViewPost.Post
+	postRef := &atproto.RepoStrongRef{Cid: post.Cid, Uri: post.Uri}
+	feedPost := post.Record.Val.(*bsky.FeedPost)
+	if feedPost.Reply == nil {
+		root = postRef
+		parent = root
+	} else {
+		root = feedPost.Reply.Root
+		parent = postRef
+	}
+
+	return root, parent, nil
 }
 
 type savePoster struct {

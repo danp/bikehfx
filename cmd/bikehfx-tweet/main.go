@@ -171,7 +171,7 @@ func newRootCmd() (*ffcli.Command, *rootConfig) {
 	fs.StringVar(&cfg.bskyServer, "bsky-server", "https://bsky.social", "bluesky server URL")
 	fs.StringVar(&cfg.bskyHandle, "bsky-handle", "", "bluesky handle")
 	fs.StringVar(&cfg.bskyPassword, "bsky-password", "", "bluesky password")
-	fs.StringVar(&cfg.bskyInReplyTo, "bsky-in-reply-to", "", "if set, first post will reply to this status (json of cid and uri)")
+	fs.StringVar(&cfg.bskyInReplyTo, "bsky-in-reply-to", "", "if set, first post will reply to this status at proto URI or web URL")
 
 	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated posts to disk instead of posting")
 
