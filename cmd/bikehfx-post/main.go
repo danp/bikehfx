@@ -69,18 +69,9 @@ func main() {
 
 	var tp threadPoster
 	if rootCfg.testMode {
-		tp = posterThreader{p: &savePoster{}, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost}
+		tp = posterThreader{p: &savePoster{}, initial: rootCfg.initialPost}
 	} else {
 		var mtt multiPosterThreader
-
-		if rootCfg.twitterAppSecret != "" {
-			tw, err := newTwitterPoster(rootCfg.twitterConsumerKey, rootCfg.twitterConsumerSecret, rootCfg.twitterAppToken, rootCfg.twitterAppSecret)
-			if err != nil {
-				log.Println(err)
-			} else {
-				mtt = append(mtt, posterThreader{p: tw, inReplyTo: rootCfg.twitterInReplyTo, initial: rootCfg.initialPost})
-			}
-		}
 
 		if rootCfg.mastodonClientID != "" {
 			mt, err := newMastodonTooter(rootCfg.mastodonServer, rootCfg.mastodonClientID, rootCfg.mastodonClientSecret, rootCfg.mastodonAccessToken)
@@ -120,12 +111,6 @@ type rootConfig struct {
 
 	initialPost string
 
-	twitterConsumerKey    string
-	twitterConsumerSecret string
-	twitterAppToken       string
-	twitterAppSecret      string
-	twitterInReplyTo      string
-
 	mastodonServer       string
 	mastodonClientID     string
 	mastodonClientSecret string
@@ -154,12 +139,6 @@ func newRootCmd() (*ffcli.Command, *rootConfig) {
 	fs.StringVar(&cfg.queryURL, "query-url", "", "query URL")
 
 	fs.StringVar(&cfg.initialPost, "initial-post", "", "if set, text for first post")
-
-	fs.StringVar(&cfg.twitterConsumerKey, "twitter-consumer-key", "", "twitter consumer key")
-	fs.StringVar(&cfg.twitterConsumerSecret, "twitter-consumer-secret", "", "twitter consumer secret")
-	fs.StringVar(&cfg.twitterAppToken, "twitter-app-token", "", "twitter app token")
-	fs.StringVar(&cfg.twitterAppSecret, "twitter-app-secret", "", "twitter app secret")
-	fs.StringVar(&cfg.twitterInReplyTo, "twitter-in-reply-to", "", "if set, first tweet will reply to this status id")
 
 	fs.StringVar(&cfg.mastodonServer, "mastodon-server", "", "mastodon server URL")
 	// https://docs.joinmastodon.org/client/token/, requires read:accounts, write:media, write:statuses

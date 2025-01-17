@@ -3,12 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -21,7 +17,6 @@ import (
 	lexutil "github.com/bluesky-social/indigo/lex/util"
 	"github.com/bluesky-social/indigo/util"
 	"github.com/bluesky-social/indigo/xrpc"
-	"github.com/dghubble/oauth1"
 	"github.com/graxinc/errutil"
 	"github.com/mattn/go-mastodon"
 )
@@ -88,202 +83,6 @@ func (m multiPosterThreader) postThread(ctx context.Context, posts []post) ([]st
 		return nil, errors.Join(errs...)
 	}
 	return ids, nil
-}
-
-type twitterPoster struct {
-	hc       *http.Client
-	username string
-}
-
-func newTwitterPoster(consumerKey, consumerSecret, appToken, appSecret string) (twitterPoster, error) {
-	oaConfig := oauth1.NewConfig(consumerKey, consumerSecret)
-	oaToken := oauth1.NewToken(appToken, appSecret)
-	cl := oaConfig.Client(context.Background(), oaToken)
-
-	currentUser, err := currentTwitterUser(cl)
-	if err != nil {
-		return twitterPoster{}, errutil.With(err)
-	}
-
-	return twitterPoster{hc: cl, username: currentUser}, nil
-}
-
-func currentTwitterUser(cl *http.Client) (string, error) {
-	resp, err := cl.Get("https://api.twitter.com/2/users/me")
-	if err != nil {
-		return "", errutil.With(err)
-	}
-	defer resp.Body.Close()
-
-	var body struct {
-		Data struct {
-			Username string
-		}
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return "", errutil.With(err)
-	}
-	return body.Data.Username, nil
-}
-
-func (t twitterPoster) post(ctx context.Context, p post) (string, error) {
-	var mediaIDs []string
-	for _, m := range p.media {
-		id, err := t.uploadMedia(m)
-		if err != nil {
-			return "", errutil.With(err)
-		}
-		mediaIDs = append(mediaIDs, id)
-	}
-
-	type Reply struct {
-		ID string `json:"in_reply_to_tweet_id"`
-	}
-	type Media struct {
-		IDs []string `json:"media_ids"`
-	}
-	var reqb struct {
-		Text  string `json:"text"`
-		Reply *Reply `json:"reply,omitempty"`
-		Media *Media `json:"media,omitempty"`
-	}
-	reqb.Text = p.text
-	if p.inReplyTo != "" {
-		reqb.Reply = &Reply{ID: p.inReplyTo}
-	}
-	if len(mediaIDs) > 0 {
-		reqb.Media = &Media{IDs: mediaIDs}
-	}
-
-	b, err := json.Marshal(reqb)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-
-	resp, err := t.hc.Post("https://api.twitter.com/2/tweets", "application/json", bytes.NewReader(b))
-	if err != nil {
-		return "", errutil.With(err)
-	}
-	defer resp.Body.Close()
-
-	rb, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-
-	if resp.StatusCode/100 != 2 {
-		bs := string(rb)
-		if len(bs) > 200 {
-			bs = bs[:200]
-		}
-
-		return "", errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
-	}
-
-	var respb struct {
-		Data struct {
-			ID string
-		}
-	}
-	if err := json.Unmarshal(rb, &respb); err != nil {
-		return "", errutil.With(err)
-	}
-	return respb.Data.ID, nil
-}
-
-func (t twitterPoster) uploadMedia(med postMedia) (string, error) {
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-
-	fw, err := w.CreateFormField("media")
-	if err != nil {
-		return "", errutil.With(err)
-	}
-	if _, err := fw.Write(med.b); err != nil {
-		return "", errutil.With(err)
-	}
-	if err := w.Close(); err != nil {
-		return "", errutil.With(err)
-	}
-
-	req, err := http.NewRequest("POST", "https://upload.twitter.com/1.1/media/upload.json", &b)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-
-	resp, err := t.hc.Do(req)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-	defer resp.Body.Close()
-
-	rb, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-
-	if resp.StatusCode/100 != 2 {
-		bs := string(rb)
-		if len(bs) > 200 {
-			bs = bs[:200]
-		}
-
-		return "", errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
-	}
-
-	var mresp struct {
-		MediaID string `json:"media_id_string"`
-	}
-	if err := json.Unmarshal(rb, &mresp); err != nil {
-		return "", errutil.With(err)
-	}
-
-	if med.altText == "" {
-		return mresp.MediaID, nil
-	}
-
-	var reqb struct {
-		MediaID string `json:"media_id"`
-		AltText struct {
-			Text string `json:"text"`
-		} `json:"alt_text"`
-	}
-	reqb.MediaID = mresp.MediaID
-	reqb.AltText.Text = med.altText
-
-	mrb, err := json.Marshal(reqb)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-
-	req, err = http.NewRequest("POST", "https://upload.twitter.com/1.1/media/metadata/create.json", bytes.NewReader(mrb))
-	if err != nil {
-		return "", errutil.With(err)
-	}
-	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
-
-	resp, err = t.hc.Do(req)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-	defer resp.Body.Close()
-
-	rb, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return "", errutil.With(err)
-	}
-
-	if resp.StatusCode/100 != 2 {
-		bs := string(rb)
-		if len(bs) > 200 {
-			bs = bs[:200]
-		}
-
-		return "", errutil.New(errutil.Tags{"code": resp.StatusCode, "bodySample": bs})
-	}
-
-	return mresp.MediaID, nil
 }
 
 type mastodonTooter struct {
