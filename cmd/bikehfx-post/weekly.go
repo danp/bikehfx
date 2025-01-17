@@ -17,7 +17,7 @@ import (
 
 func newWeeklyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
-		fs    = flag.NewFlagSet("bikehfx-tweet weekly", flag.ExitOnError)
+		fs    = flag.NewFlagSet("bikehfx-post weekly", flag.ExitOnError)
 		week  = fs.String("week", time.Now().AddDate(0, 0, -7).Format("20060102"), "week to post for, in YYYYMMDD form")
 		weeks commaSeparatedString
 	)
@@ -25,7 +25,7 @@ func newWeeklyCmd(rootConfig *rootConfig) *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "weekly",
-		ShortUsage: "bikehfx-tweet weekly",
+		ShortUsage: "bikehfx-post weekly",
 		ShortHelp:  "send weekly post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {

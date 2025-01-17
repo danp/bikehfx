@@ -148,7 +148,7 @@ type rootConfig struct {
 func newRootCmd() (*ffcli.Command, *rootConfig) {
 	var cfg rootConfig
 
-	fs := flag.NewFlagSet("bikehfx-tweet", flag.ExitOnError)
+	fs := flag.NewFlagSet("bikehfx-post", flag.ExitOnError)
 
 	fs.StringVar(&cfg.directoryURL, "directory-url", "", "directory URL")
 	fs.StringVar(&cfg.queryURL, "query-url", "", "query URL")
@@ -176,7 +176,7 @@ func newRootCmd() (*ffcli.Command, *rootConfig) {
 	fs.BoolVar(&cfg.testMode, "test-mode", false, "if enabled, write generated posts to disk instead of posting")
 
 	return &ffcli.Command{
-		ShortUsage: "bikehfx-tweet [flags] <subcommand>",
+		ShortUsage: "bikehfx-post [flags] <subcommand>",
 		FlagSet:    fs,
 		Options:    []ff.Option{ff.WithEnvVarNoPrefix()},
 		Exec: func(ctx context.Context, args []string) error {

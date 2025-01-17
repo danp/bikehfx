@@ -17,7 +17,7 @@ import (
 
 func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
-		fs     = flag.NewFlagSet("bikehfx-tweet monthly", flag.ExitOnError)
+		fs     = flag.NewFlagSet("bikehfx-post monthly", flag.ExitOnError)
 		month  = fs.String("month", time.Now().AddDate(0, -1, 0).Format("200601"), "month to post for, in YYYYMM form")
 		months commaSeparatedString
 	)
@@ -25,7 +25,7 @@ func newMonthlyCmd(rootConfig *rootConfig) *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "monthly",
-		ShortUsage: "bikehfx-tweet monthly",
+		ShortUsage: "bikehfx-post monthly",
 		ShortHelp:  "send monthly post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {

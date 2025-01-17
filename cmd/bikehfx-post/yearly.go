@@ -19,7 +19,7 @@ import (
 
 func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
-		fs    = flag.NewFlagSet("bikehfx-tweet yearly", flag.ExitOnError)
+		fs    = flag.NewFlagSet("bikehfx-post yearly", flag.ExitOnError)
 		year  = fs.String("year", time.Now().AddDate(-1, 0, 0).Format("2006"), "year to post for, in YYYY form")
 		years commaSeparatedString
 	)
@@ -27,7 +27,7 @@ func newYearlyCmd(rootConfig *rootConfig) *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "yearly",
-		ShortUsage: "bikehfx-tweet yearly",
+		ShortUsage: "bikehfx-post yearly",
 		ShortHelp:  "send yearly post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {

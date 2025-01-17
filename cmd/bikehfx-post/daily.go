@@ -29,7 +29,7 @@ import (
 
 func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 	var (
-		fs   = flag.NewFlagSet("bikehfx-tweet daily", flag.ExitOnError)
+		fs   = flag.NewFlagSet("bikehfx-post daily", flag.ExitOnError)
 		day  = fs.String("day", time.Now().AddDate(0, 0, -1).Format("20060102"), "day to post for, in YYYYMMDD form")
 		days commaSeparatedString
 	)
@@ -37,7 +37,7 @@ func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "daily",
-		ShortUsage: "bikehfx-tweet daily",
+		ShortUsage: "bikehfx-post daily",
 		ShortHelp:  "send daily post",
 		FlagSet:    fs,
 		Exec: func(ctx context.Context, args []string) error {
