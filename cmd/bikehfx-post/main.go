@@ -526,12 +526,17 @@ func (q counterbaseTimeRangeQuerier) query(ctx context.Context, trs ...timeRange
 		if err != nil {
 			return nil, errutil.With(err)
 		}
+		var found bool
 		for i, s := range cs {
 			if s.counter.ID != counter.ID {
 				continue
 			}
+			found = true
 			cs[i].last = last
 			cs[i].lastNonZero = lastNonZero
+		}
+		if !found {
+			cs = append(cs, counterSeries{counter: counter, last: last, lastNonZero: lastNonZero})
 		}
 	}
 	return cs, nil

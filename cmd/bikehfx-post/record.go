@@ -48,6 +48,9 @@ func (r counterbaseRecordser) records(ctx context.Context, before time.Time, cur
 	records := make(map[string]recordKind)
 
 	for _, c := range currentValues {
+		if len(c.series) == 0 {
+			continue
+		}
 		for _, rk := range recordRangeOrder {
 			if _, ok := records[c.counter.ID]; ok {
 				break
@@ -65,6 +68,9 @@ func (r counterbaseRecordser) records(ctx context.Context, before time.Time, cur
 
 	var csSum int
 	for _, c := range currentValues {
+		if len(c.series) == 0 {
+			continue
+		}
 		csSum += c.series[0].val
 	}
 
