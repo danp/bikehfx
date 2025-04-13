@@ -22,8 +22,9 @@ import (
 )
 
 type postMedia struct {
-	b       []byte
-	altText string
+	b             []byte
+	height, width int
+	altText       string
 }
 
 type post struct {
@@ -205,14 +206,21 @@ func (b blueskyPoster) post(ctx context.Context, p post) (string, error) {
 		if err != nil {
 			return "", errutil.With(err)
 		}
-		post.Embed.EmbedImages.Images = append(post.Embed.EmbedImages.Images, &bsky.EmbedImages_Image{
+		img := &bsky.EmbedImages_Image{
 			Alt: m.altText,
 			Image: &lexutil.LexBlob{
 				Ref:      resp.Blob.Ref,
 				MimeType: "image/png",
 				Size:     resp.Blob.Size,
 			},
-		})
+		}
+		if m.width > 0 && m.height > 0 {
+			img.AspectRatio = &bsky.EmbedDefs_AspectRatio{
+				Width:  int64(m.width),
+				Height: int64(m.height),
+			}
+		}
+		post.Embed.EmbedImages.Images = append(post.Embed.EmbedImages.Images, img)
 	}
 
 	resp, err := atproto.RepoCreateRecord(ctx, b.client, &atproto.RepoCreateRecord_Input{

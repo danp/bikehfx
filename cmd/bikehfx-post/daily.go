@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"hash/crc32"
-	"image/color"
+	"image"
+	"image/png"
 	"log"
 	"maps"
 	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,10 +25,6 @@ import (
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
-	"gonum.org/v1/plot"
-	"gonum.org/v1/plot/plotter"
-	"gonum.org/v1/plot/plotutil"
-	"gonum.org/v1/plot/vg"
 )
 
 func newDailyCmd(rootConfig *rootConfig) *ffcli.Command {
@@ -63,7 +63,7 @@ func dailyExec(ctx context.Context, days []string, trq counterbaseTimeRangeQueri
 			return errutil.With(err)
 		}
 
-		ps, err := dayPost(ctx, dayt, trq, ecWeatherer{}, rc, pngDayGrapher{})
+		ps, err := dayPost(ctx, dayt, trq, ecWeatherer{}, rc, uvScriptGrapher{})
 		if err != nil {
 			return errutil.With(err)
 		}
@@ -82,7 +82,7 @@ type weatherer interface {
 }
 
 type dayGrapher interface {
-	graph(ctx context.Context, day time.Time, cs []counterSeries) (_ []byte, altText string, _ error)
+	graph(ctx context.Context, day time.Time, cs []counterSeries) (_ []byte, _ image.Rectangle, altText string, _ error)
 }
 
 type counterSeries struct {
@@ -133,12 +133,17 @@ func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier
 		return nil, errutil.With(err)
 	}
 
-	dg, dat, err := grapher.graph(ctx, day, hourSeries)
+	dg, rect, dat, err := grapher.graph(ctx, day, hourSeries)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
 
-	media := []postMedia{{b: dg, altText: dat}}
+	media := []postMedia{{
+		b:       dg,
+		width:   rect.Dx(),
+		height:  rect.Dy(),
+		altText: dat,
+	}}
 
 	return []post{
 		{text: text, media: media},
@@ -217,136 +222,78 @@ func dayPostText(day time.Time, w weather, cs []counterSeries, records map[strin
 	return strings.TrimSpace(out.String())
 }
 
-type pngDayGrapher struct{}
+type uvScriptGrapher struct{}
 
-func (pngDayGrapher) graph(ctx context.Context, day time.Time, cs []counterSeries) ([]byte, string, error) {
-	counterXYs := make(map[string]plotter.XYs)
+//go:embed scripts/day-graph.py
+var dayGraphScript []byte
 
-	earliestNonZeroHour := 24
-	for _, s := range cs {
-		xys := make(plotter.XYs, 24)
-		for _, trv := range s.series {
-			hour := trv.tr.begin.Hour()
-			xys[hour].X = float64(hour)
-			xys[hour].Y = float64(trv.val)
-		}
+//go:embed scripts/day-graph.py.lock
+var dayGraphScriptLock []byte
 
-		for i, xy := range xys {
-			if xy.Y == 0 {
-				continue
-			}
-			if i < earliestNonZeroHour {
-				earliestNonZeroHour = i
-				break
-			}
-		}
-
-		counterXYs[s.counter.ID] = xys
+func (uvScriptGrapher) graph(ctx context.Context, day time.Time, cs []counterSeries) ([]byte, image.Rectangle, string, error) {
+	type inputCounterHour struct {
+		Hour  int `json:"hour"`
+		Count int `json:"count"`
+	}
+	type inputCounter struct {
+		Name    string             `json:"name"`
+		Missing bool               `json:"missing"`
+		Hours   []inputCounterHour `json:"hours"`
+	}
+	var input struct {
+		Day      string         `json:"day"`
+		Counters []inputCounter `json:"counters"`
 	}
 
-	// ---
-
-	if err := initGraph(); err != nil {
-		return nil, "", errutil.With(err)
-	}
-
-	p := plot.New()
-
-	p.Title.Text = "Counts for " + day.Format("Mon Jan 2") + " by hour starting"
-
-	p.X.Tick.Marker = hourTicker{}
-
-	p.Y.Min = 0
-	p.Y.Label.Text = "Count"
-
-	// We only deal with whole numbers so undo any use of strconv.FormatFloat.
-	origYMarker := p.Y.Tick.Marker
-	p.Y.Tick.Marker = plot.TickerFunc(func(min, max float64) []plot.Tick {
-		ticks := origYMarker.Ticks(min, max)
-		for i := range ticks {
-			if ticks[i].Label == "" {
-				continue
-			}
-			ticks[i].Label = strconv.Itoa(int(ticks[i].Value))
+	input.Day = day.Format("Mon Jan 2")
+	for _, c := range cs {
+		hours := []inputCounterHour{}
+		for _, v := range c.series {
+			hours = append(hours, inputCounterHour{Hour: v.tr.begin.Hour(), Count: v.val})
 		}
-		return ticks
-	})
-
-	p.Legend.Top = true
-	p.Legend.Left = true
-
-	grid := plotter.NewGrid()
-	grid.Vertical.Color = color.Gray{175}
-	grid.Horizontal.Color = color.Gray{175}
-	p.Add(grid)
-
-	var seriesIndices []int
-	for i := range cs {
-		seriesIndices = append(seriesIndices, i)
-	}
-	slices.SortFunc(seriesIndices, func(i, j int) int {
-		return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
-	})
-
-	type colorDash struct {
-		colorIdx int
-		dashIdx  int
-	}
-	colorDashes := make(map[colorDash]struct{})
-
-	for _, si := range seriesIndices {
-		s := cs[si]
-		c := s.counter
-		xys := counterXYs[c.ID]
-
-		ln, err := plotter.NewLine(xys[earliestNonZeroHour:])
-		if err != nil {
-			return nil, "", errutil.With(err)
-		}
-
-		ci := crc32.ChecksumIEEE([]byte(c.Name)) // using full name
-
-		colorIdx := int(ci) % len(plotutil.DefaultColors)
-		dashIdx := int(ci) % len(plotutil.DefaultDashes)
-		var changedDashes bool
-		for {
-			if _, ok := colorDashes[colorDash{colorIdx, dashIdx}]; !ok {
-				colorDashes[colorDash{colorIdx, dashIdx}] = struct{}{}
-				break
-			}
-			if changedDashes {
-				colorIdx++
-				changedDashes = false
-				continue
-			}
-			dashIdx++
-			changedDashes = true
-		}
-
-		ln.LineStyle.Color = plotutil.DefaultColors[colorIdx]
-		ln.LineStyle.Dashes = plotutil.DefaultDashes[dashIdx]
-
-		ln.LineStyle.Width = vg.Points(2)
-
-		p.Add(ln)
-		p.Legend.Add(counterName(c), ln)
+		name := cmp.Or(c.counter.ShortName, c.counter.Name)
+		input.Counters = append(input.Counters, inputCounter{Name: name, Hours: hours, Missing: len(c.series) == 0})
 	}
 
-	wt, err := p.WriterTo(20*vg.Centimeter, 10*vg.Centimeter, "png")
+	b, err := json.Marshal(input)
 	if err != nil {
-		return nil, "", errutil.With(err)
+		return nil, image.Rectangle{}, "", errutil.With(err)
 	}
 
-	var b bytes.Buffer
-	if _, err := wt.WriteTo(&b); err != nil {
-		return nil, "", errutil.With(err)
+	td, err := os.MkdirTemp("", "day-graph")
+	if err != nil {
+		return nil, image.Rectangle{}, "", errutil.With(err)
+	}
+	defer os.RemoveAll(td)
+
+	if err := os.WriteFile(filepath.Join(td, "day-graph.py"), dayGraphScript, 0644); err != nil {
+		return nil, image.Rectangle{}, "", errutil.With(err)
+	}
+	if err := os.Chmod(filepath.Join(td, "day-graph.py"), 0755); err != nil {
+		return nil, image.Rectangle{}, "", errutil.With(err)
+	}
+	if err := os.WriteFile(filepath.Join(td, "day-graph.py.lock"), dayGraphScriptLock, 0644); err != nil {
+		return nil, image.Rectangle{}, "", errutil.With(err)
 	}
 
-	if err := padImage(&b); err != nil {
-		return nil, "", errutil.With(err)
+	var out bytes.Buffer
+
+	cmd := exec.CommandContext(ctx, "uv", "run", "--quiet", "--frozen", filepath.Join(td, "day-graph.py"))
+	cmd.Stdin = bytes.NewReader(b)
+	cmd.Stdout = &out
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, image.Rectangle{}, "", errutil.With(err)
 	}
 
-	return b.Bytes(), dailyAltText(cs), nil
+	// get width and height from the output png
+	img, err := png.Decode(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		return nil, image.Rectangle{}, "", errutil.With(err)
+	}
+
+	return out.Bytes(), img.Bounds(), dailyAltText(cs), nil
 }
 
 func dailyAltText(cs []counterSeries) string {
@@ -379,7 +326,7 @@ func dailyAltText(cs []counterSeries) string {
 	if len(counterNames) < 2 {
 		counters = "counter"
 	}
-	out := fmt.Sprintf("Line chart of bikes counted by hour from the %s %s.", humanList(counterNames), counters)
+	out := fmt.Sprintf("Heatmap of bikes counted by hour from the %s %s.", humanList(counterNames), counters)
 
 	if len(hhs) == 1 {
 		hh := hhs[0]
@@ -419,24 +366,4 @@ func humanList(words []string) string {
 	default:
 		return strings.Join(words[:len(words)-1], ", ") + "," + joiner + words[len(words)-1]
 	}
-}
-
-type hourTicker struct{}
-
-func (h hourTicker) Ticks(min, max float64) []plot.Tick {
-	var ts []plot.Tick
-
-	for i := 0; i < 24; i++ {
-		t := plot.Tick{
-			Value: float64(i),
-		}
-		if i%2 == 0 {
-			var tt time.Time
-			tt = tt.Add(time.Duration(i) * time.Hour)
-			t.Label = tt.Format("3PM")
-		}
-		ts = append(ts, t)
-	}
-
-	return ts
 }

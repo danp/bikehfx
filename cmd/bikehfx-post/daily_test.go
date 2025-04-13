@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -77,124 +76,6 @@ func TestDayPostText(t *testing.T) {
 		}
 		got := dayPostText(day, weather{}, cs, nil)
 		expect(t, "text.txt", got)
-	})
-}
-
-func TestDayGraph(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-
-	day := time.Date(2023, 7, 21, 0, 0, 0, 0, time.UTC)
-
-	dayHours := newTimeRangeDate(time.Date(2021, 3, 26, 0, 0, 0, 0, day.Location()), 0, 0, 1).split(time.Hour)
-
-	makeSeries := func(name string, hourValues map[int]int) counterSeries {
-		var cs counterSeries
-		cs.counter.ID = "id_" + name
-		cs.counter.Name = name
-		if before, ok := strings.CutSuffix(name, " Short"); ok {
-			cs.counter.ShortName = before
-		}
-		for _, h := range dayHours {
-			v, ok := hourValues[h.begin.Hour()]
-			if !ok {
-				v = 0
-			}
-			cs.series = append(cs.series, timeRangeValue{tr: h, val: v})
-		}
-		return cs
-	}
-
-	var g pngDayGrapher
-
-	t.Run("Basic", func(t *testing.T) {
-		cs := []counterSeries{
-			makeSeries("Apple Short", map[int]int{0: 1, 8: 3, 16: 5, 23: 7}),
-			makeSeries("Banana", map[int]int{1: 2, 9: 4, 17: 6, 22: 8}),
-		}
-
-		png, alt, err := g.graph(ctx, day, cs)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		expect(t, "graph.png", png)
-		expect(t, "alt.txt", alt)
-	})
-
-	t.Run("SkipsInitialZeroHours", func(t *testing.T) {
-		cs := []counterSeries{
-			makeSeries("Apple", map[int]int{8: 3, 16: 5}),
-			makeSeries("Banana", map[int]int{9: 4, 17: 6}),
-		}
-
-		png, alt, err := g.graph(ctx, day, cs)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		expect(t, "graph.png", png)
-		expect(t, "alt.txt", alt)
-	})
-
-	t.Run("SortsNames", func(t *testing.T) {
-		cs := []counterSeries{
-			makeSeries("Banana", map[int]int{9: 2}),
-			makeSeries("Apple", map[int]int{8: 1}),
-		}
-
-		png, alt, err := g.graph(ctx, day, cs)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		expect(t, "graph.png", png)
-		expect(t, "alt.txt", alt)
-	})
-
-	t.Run("MultiHighestSingleCounter", func(t *testing.T) {
-		cs := []counterSeries{
-			makeSeries("Apple", map[int]int{8: 1}),
-			makeSeries("Banana", map[int]int{9: 2, 10: 2}),
-		}
-
-		png, alt, err := g.graph(ctx, day, cs)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		expect(t, "graph.png", png)
-		expect(t, "alt.txt", alt)
-	})
-
-	t.Run("MultiHighestMultiCounter", func(t *testing.T) {
-		cs := []counterSeries{
-			makeSeries("Apple", map[int]int{8: 1}),
-			makeSeries("Banana", map[int]int{9: 1}),
-		}
-
-		png, alt, err := g.graph(ctx, day, cs)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		expect(t, "graph.png", png)
-		expect(t, "alt.txt", alt)
-	})
-
-	t.Run("SingleCounter", func(t *testing.T) {
-		cs := []counterSeries{
-			makeSeries("Apple", map[int]int{8: 1}),
-		}
-
-		png, alt, err := g.graph(ctx, day, cs)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		expect(t, "graph.png", png)
-		expect(t, "alt.txt", alt)
 	})
 }
 

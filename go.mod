@@ -5,7 +5,6 @@ go 1.23
 require (
 	github.com/bluesky-social/indigo v0.0.0-20241223053147-c130614850e5
 	github.com/danp/counterbase v0.0.0-20240303171822-ec4a89e295ad
-	github.com/dghubble/oauth1 v0.7.2
 	github.com/dimchansky/utfbom v1.1.1
 	github.com/google/go-cmp v0.6.0
 	github.com/graxinc/errutil v0.0.0-20230615185726-b495a08a0537

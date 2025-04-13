@@ -1,1 +1,0 @@
-Line chart of bikes counted by hour from the Apple counter. The highest hourly count was 1 during the 8 AM hour from the Apple counter.
