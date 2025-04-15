@@ -266,19 +266,19 @@ func (uvScriptGrapher) graph(ctx context.Context, day time.Time, cs []counterSer
 	}
 	defer os.RemoveAll(td)
 
-	if err := os.WriteFile(filepath.Join(td, "day-graph.py"), dayGraphScript, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(td, "day-graph.py"), dayGraphScript, 0600); err != nil {
 		return nil, image.Rectangle{}, "", errutil.With(err)
 	}
 	if err := os.Chmod(filepath.Join(td, "day-graph.py"), 0755); err != nil {
 		return nil, image.Rectangle{}, "", errutil.With(err)
 	}
-	if err := os.WriteFile(filepath.Join(td, "day-graph.py.lock"), dayGraphScriptLock, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(td, "day-graph.py.lock"), dayGraphScriptLock, 0600); err != nil {
 		return nil, image.Rectangle{}, "", errutil.With(err)
 	}
 
 	var out bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, "uv", "run", "--quiet", "--frozen", filepath.Join(td, "day-graph.py"))
+	cmd := exec.CommandContext(ctx, "uv", "run", "--quiet", "--frozen", filepath.Join(td, "day-graph.py")) //nolint:gosec
 	cmd.Stdin = bytes.NewReader(b)
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
