@@ -55,14 +55,10 @@ def main():
     width = 24 * cell_size
     height = num_counters * cell_size
 
-    from matplotlib import gridspec
+    fig = plt.figure(figsize=(width, height), dpi=300)
+    ax = fig.add_subplot(111)
 
-    fig = plt.figure(figsize=(width + 1.5, height), dpi=300, constrained_layout=True)  # use constrained_layout
-    gs = gridspec.GridSpec(1, 2, width_ratios=[24, 1], figure=fig)
-
-    ax = fig.add_subplot(gs[0])
-    cbar_ax = fig.add_subplot(gs[1])
-
+    # Draw heatmap with no colorbar
     sns.heatmap(
         heatmap_data,
         cmap="viridis",
@@ -70,13 +66,13 @@ def main():
         linecolor='gray',
         annot=annotations,
         fmt='',
-        cbar_ax=cbar_ax,
-        cbar_kws={"label": "Count"},
         square=True,
         ax=ax,
-        mask=heatmap_data.isna()
+        mask=heatmap_data.isna(),
+        cbar=False
     )
 
+    # Titles and labels
     ax.set_title(f"Counts for {day_label} by hour starting", fontsize=14, weight='bold', pad=10)
     ax.set_xlabel("Hour", fontsize=12, labelpad=5)
     ax.set_ylabel("Counter", fontsize=12, labelpad=5)
@@ -84,6 +80,8 @@ def main():
     ax.set_xticks(np.arange(24) + 0.5)
     ax.set_xticklabels(hour_order, ha='center', fontsize=12)
     ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=12)
+
+    plt.tight_layout()
 
     # Output PNG to stdout
     buffer = BytesIO()
