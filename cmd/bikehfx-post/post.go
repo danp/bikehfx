@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/png"
 	"net/url"
 	"os"
 	"regexp"
@@ -22,9 +23,8 @@ import (
 )
 
 type postMedia struct {
-	b             []byte
-	height, width int
-	altText       string
+	b       []byte
+	altText string
 }
 
 type post struct {
@@ -214,11 +214,15 @@ func (b blueskyPoster) post(ctx context.Context, p post) (string, error) {
 				Size:     resp.Blob.Size,
 			},
 		}
-		if m.width > 0 && m.height > 0 {
-			img.AspectRatio = &bsky.EmbedDefs_AspectRatio{
-				Width:  int64(m.width),
-				Height: int64(m.height),
-			}
+
+		decoded, err := png.Decode(bytes.NewReader(m.b))
+		if err != nil {
+			return "", errutil.With(err)
+		}
+
+		img.AspectRatio = &bsky.EmbedDefs_AspectRatio{
+			Width:  int64(decoded.Bounds().Dx()),
+			Height: int64(decoded.Bounds().Dy()),
 		}
 		post.Embed.EmbedImages.Images = append(post.Embed.EmbedImages.Images, img)
 	}

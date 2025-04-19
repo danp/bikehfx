@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"flag"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -141,6 +142,97 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		graphTRVs = append(graphTRVs, timeRangeValue{tr: gm, val: weekCounts[gm.begin]})
 	}
 
+	p1 := post{text: weekPostText}
+
+	{
+		weekDays := weekRange.splitDate(0, 0, 1)
+
+		weekDaySeries, err := trq.query(ctx, weekDays...)
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		type inputCounterDay struct {
+			Day   string `json:"day"`
+			Count int    `json:"count"`
+		}
+		type inputCounter struct {
+			Name    string            `json:"name"`
+			Missing bool              `json:"missing"`
+			Days    []inputCounterDay `json:"days"`
+		}
+		var input struct {
+			Week     string         `json:"week"`
+			Counters []inputCounter `json:"counters"`
+		}
+
+		input.Week = weekRange.end.AddDate(0, 0, -1).Format("Jan 2")
+
+		for _, c := range weekDaySeries {
+			days := []inputCounterDay{}
+			for _, v := range c.series {
+				days = append(days, inputCounterDay{Day: v.tr.begin.Format("Mon"), Count: v.val})
+			}
+			name := cmp.Or(c.counter.ShortName, c.counter.Name)
+			input.Counters = append(input.Counters, inputCounter{Name: name, Days: days, Missing: len(c.series) == 0})
+		}
+
+		imgBytes, err := runUVScript(ctx, "week-heatmap.py", input)
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		hhs := []counterSeries{{series: []timeRangeValue{{}}}}
+		var counterNames []string
+		for _, c := range weekDaySeries {
+			counterNames = append(counterNames, c.counter.Name) // using full name
+			for _, trv := range c.series {
+				fv := hhs[0].series[0].val
+
+				if trv.val > fv {
+					hhs = []counterSeries{{counter: c.counter, series: []timeRangeValue{trv}}}
+				} else if trv.val == fv {
+					hhs = append(hhs, counterSeries{counter: c.counter, series: []timeRangeValue{trv}})
+				}
+			}
+		}
+		slices.Sort(counterNames)
+
+		counters := "counters"
+		if len(counterNames) < 2 {
+			counters = "counter"
+		}
+		alt := fmt.Sprintf("Heatmap of bikes counted by day from the %s %s.", humanList(counterNames), counters)
+
+		if len(hhs) == 1 {
+			hh := hhs[0]
+			hf := hh.series[0].tr.begin.Format("Mon")
+			// using full name
+			alt += fmt.Sprintf(" The highest daily count was %d on %s from the %s counter.", hh.series[0].val, hf, hh.counter.Name)
+		} else if len(hhs) > 1 {
+			hcn := make([]string, 0, len(hhs))
+			seen := make(map[string]bool)
+			for _, hh := range hhs {
+				// using full name
+				if !seen[hh.counter.Name] {
+					hcn = append(hcn, hh.counter.Name)
+					seen[hh.counter.Name] = true
+				}
+			}
+			slices.Sort(hcn)
+			counter := "counter"
+			if len(hcn) > 1 {
+				counter += "s"
+			}
+			alt += fmt.Sprintf(" The highest daily count was %d from the %s %s.", hhs[0].series[0].val, humanList(hcn), counter)
+		}
+
+		p1.media = append(p1.media, postMedia{
+			b:       imgBytes,
+			altText: alt,
+		})
+	}
+
 	gr, err := timeRangeBarGraph(graphTRVs, "Total count by week ending", func(tr timeRange) string { return tr.end.AddDate(0, 0, -1).Format("Jan 2") })
 	if err != nil {
 		return nil, errutil.With(err)
@@ -171,12 +263,9 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 		return nil, errutil.With(err)
 	}
 
-	posts = append(posts, post{
-		text: weekPostText,
-		media: []postMedia{
-			{b: gr, altText: altText},
-		},
-	})
+	p1.media = append(p1.media, postMedia{b: gr, altText: altText})
+
+	posts = append(posts, p1)
 
 	var graph2TRVs []timeRangeValue
 	for i, wr := range weekRanges {

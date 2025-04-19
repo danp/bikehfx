@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -732,4 +734,53 @@ func isoYearWeekToDate(year int, week int) (time.Time, error) {
 	firstDayOfWeek := startOfYear.AddDate(0, 0, daysToWeek)
 
 	return firstDayOfWeek, nil
+}
+
+//go:embed scripts/*
+var scripts embed.FS
+
+func runUVScript(ctx context.Context, script string, input any) ([]byte, error) {
+	b, err := json.Marshal(input)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
+	td, err := os.MkdirTemp("", "script")
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+	defer os.RemoveAll(td)
+
+	scriptBytes, err := scripts.ReadFile(filepath.Join("scripts", script))
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+	scriptPath := filepath.Join(td, "script.py")
+	if err := os.WriteFile(scriptPath, scriptBytes, 0600); err != nil {
+		return nil, errutil.With(err)
+	}
+	if err := os.Chmod(scriptPath, 0755); err != nil {
+		return nil, errutil.With(err)
+	}
+	scriptLockBytes, err := scripts.ReadFile(filepath.Join("scripts", script+".lock"))
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+	scriptLockPath := filepath.Join(td, "script.py.lock")
+	if err := os.WriteFile(scriptLockPath, scriptLockBytes, 0600); err != nil {
+		return nil, errutil.With(err)
+	}
+
+	var out bytes.Buffer
+
+	cmd := exec.CommandContext(ctx, "uv", "run", "--quiet", "--frozen", scriptPath) //nolint:gosec
+	cmd.Stdin = bytes.NewReader(b)
+	cmd.Stdout = &out
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, errutil.With(err)
+	}
+
+	return out.Bytes(), nil
 }

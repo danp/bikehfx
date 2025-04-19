@@ -1,21 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"image"
-	"image/png"
 	"log"
 	"maps"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -63,7 +56,7 @@ func dailyExec(ctx context.Context, days []string, trq counterbaseTimeRangeQueri
 			return errutil.With(err)
 		}
 
-		ps, err := dayPost(ctx, dayt, trq, ecWeatherer{}, rc, uvScriptGrapher{})
+		ps, err := dayPost(ctx, dayt, trq, ecWeatherer{}, rc, uvScriptHeatmaper{})
 		if err != nil {
 			return errutil.With(err)
 		}
@@ -81,8 +74,8 @@ type weatherer interface {
 	weather(ctx context.Context, day time.Time) (weather, error)
 }
 
-type dayGrapher interface {
-	graph(ctx context.Context, day time.Time, cs []counterSeries) (_ []byte, _ image.Rectangle, altText string, _ error)
+type dayHeatmaper interface {
+	heatmap(ctx context.Context, day time.Time, cs []counterSeries) (_ []byte, altText string, _ error)
 }
 
 type counterSeries struct {
@@ -92,7 +85,7 @@ type counterSeries struct {
 	series      []timeRangeValue
 }
 
-func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier, weatherer weatherer, recordser recordser, grapher dayGrapher) ([]post, error) {
+func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier, weatherer weatherer, recordser recordser, heatmaper dayHeatmaper) ([]post, error) {
 	dayRange := newTimeRangeDate(time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location()), 0, 0, 1)
 
 	cs, err := trq.query(ctx, dayRange)
@@ -133,15 +126,13 @@ func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier
 		return nil, errutil.With(err)
 	}
 
-	dg, rect, dat, err := grapher.graph(ctx, day, hourSeries)
+	dg, dat, err := heatmaper.heatmap(ctx, day, hourSeries)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
 
 	media := []postMedia{{
 		b:       dg,
-		width:   rect.Dx(),
-		height:  rect.Dy(),
 		altText: dat,
 	}}
 
@@ -222,15 +213,9 @@ func dayPostText(day time.Time, w weather, cs []counterSeries, records map[strin
 	return strings.TrimSpace(out.String())
 }
 
-type uvScriptGrapher struct{}
+type uvScriptHeatmaper struct{}
 
-//go:embed scripts/day-graph.py
-var dayGraphScript []byte
-
-//go:embed scripts/day-graph.py.lock
-var dayGraphScriptLock []byte
-
-func (uvScriptGrapher) graph(ctx context.Context, day time.Time, cs []counterSeries) ([]byte, image.Rectangle, string, error) {
+func (uvScriptHeatmaper) heatmap(ctx context.Context, day time.Time, cs []counterSeries) ([]byte, string, error) {
 	type inputCounterHour struct {
 		Hour  int `json:"hour"`
 		Count int `json:"count"`
@@ -255,45 +240,11 @@ func (uvScriptGrapher) graph(ctx context.Context, day time.Time, cs []counterSer
 		input.Counters = append(input.Counters, inputCounter{Name: name, Hours: hours, Missing: len(c.series) == 0})
 	}
 
-	b, err := json.Marshal(input)
+	imgBytes, err := runUVScript(ctx, "day-heatmap.py", input)
 	if err != nil {
-		return nil, image.Rectangle{}, "", errutil.With(err)
+		return nil, "", errutil.With(err)
 	}
-
-	td, err := os.MkdirTemp("", "day-graph")
-	if err != nil {
-		return nil, image.Rectangle{}, "", errutil.With(err)
-	}
-	defer os.RemoveAll(td)
-
-	if err := os.WriteFile(filepath.Join(td, "day-graph.py"), dayGraphScript, 0600); err != nil {
-		return nil, image.Rectangle{}, "", errutil.With(err)
-	}
-	if err := os.Chmod(filepath.Join(td, "day-graph.py"), 0755); err != nil {
-		return nil, image.Rectangle{}, "", errutil.With(err)
-	}
-	if err := os.WriteFile(filepath.Join(td, "day-graph.py.lock"), dayGraphScriptLock, 0600); err != nil {
-		return nil, image.Rectangle{}, "", errutil.With(err)
-	}
-
-	var out bytes.Buffer
-
-	cmd := exec.CommandContext(ctx, "uv", "run", "--quiet", "--frozen", filepath.Join(td, "day-graph.py")) //nolint:gosec
-	cmd.Stdin = bytes.NewReader(b)
-	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, image.Rectangle{}, "", errutil.With(err)
-	}
-
-	// get width and height from the output png
-	img, err := png.Decode(bytes.NewReader(out.Bytes()))
-	if err != nil {
-		return nil, image.Rectangle{}, "", errutil.With(err)
-	}
-
-	return out.Bytes(), img.Bounds(), dailyAltText(cs), nil
+	return imgBytes, dailyAltText(cs), nil
 }
 
 func dailyAltText(cs []counterSeries) string {
