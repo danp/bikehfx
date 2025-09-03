@@ -152,32 +152,40 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 			return nil, errutil.With(err)
 		}
 
-		type inputCounterDay struct {
-			Day   string `json:"day"`
-			Count int    `json:"count"`
-		}
-		type inputCounter struct {
-			Name    string            `json:"name"`
-			Missing bool              `json:"missing"`
-			Days    []inputCounterDay `json:"days"`
-		}
-		var input struct {
-			Week     string         `json:"week"`
-			Counters []inputCounter `json:"counters"`
+		var xValues []string
+		for _, d := range weekDays {
+			xValues = append(xValues, d.begin.Format("Mon"))
 		}
 
-		input.Week = weekRange.end.AddDate(0, 0, -1).Format("Jan 2")
+		input := heatmapInput{
+			Title:        fmt.Sprintf("Counts ending %s by day", weekRange.end.AddDate(0, 0, -1).Format("Jan 2")),
+			XLabel:       "Day",
+			YLabel:       "Counter",
+			XValues:      xValues,
+			CellWidth:    0.8,
+			CellHeight:   0.8,
+			Square:       true,
+			Annotations:  true,
+			SortCounters: true,
+		}
 
 		for _, c := range weekDaySeries {
-			days := []inputCounterDay{}
+			var values []heatmapInputValue
 			for _, v := range c.series {
-				days = append(days, inputCounterDay{Day: v.tr.begin.Format("Mon"), Count: v.val})
+				values = append(values, heatmapInputValue{
+					X:     v.tr.begin.Format("Mon"),
+					Count: v.val,
+				})
 			}
 			name := cmp.Or(c.counter.ShortName, c.counter.Name)
-			input.Counters = append(input.Counters, inputCounter{Name: name, Days: days, Missing: len(c.series) == 0})
+			input.Counters = append(input.Counters, heatmapInputCounter{
+				Name:    name,
+				Missing: len(c.series) == 0,
+				Values:  values,
+			})
 		}
 
-		imgBytes, err := runUVScript(ctx, "week-heatmap.py", input)
+		imgBytes, err := runUVScript(ctx, "heatmap.py", input)
 		if err != nil {
 			return nil, errutil.With(err)
 		}

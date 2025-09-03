@@ -283,7 +283,7 @@ func monthPostText(monthRange timeRange, cs []counterSeries, records map[string]
 		})
 
 		p.Fprintln(&out)
-		p.Fprintln(&out, "Missing (last):")
+		p.Fprintln(&out, "Missing:")
 		for _, i := range missingIndices {
 			c := cs[i]
 			last := c.last

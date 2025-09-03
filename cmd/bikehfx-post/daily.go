@@ -216,31 +216,40 @@ func dayPostText(day time.Time, w weather, cs []counterSeries, records map[strin
 type uvScriptHeatmaper struct{}
 
 func (uvScriptHeatmaper) heatmap(ctx context.Context, day time.Time, cs []counterSeries) ([]byte, string, error) {
-	type inputCounterHour struct {
-		Hour  int `json:"hour"`
-		Count int `json:"count"`
-	}
-	type inputCounter struct {
-		Name    string             `json:"name"`
-		Missing bool               `json:"missing"`
-		Hours   []inputCounterHour `json:"hours"`
-	}
-	var input struct {
-		Day      string         `json:"day"`
-		Counters []inputCounter `json:"counters"`
+	hourOrder := make([]string, 0, 24)
+	for i := 0; i < 24; i++ {
+		hourOrder = append(hourOrder, fmt.Sprintf("%02d", i))
 	}
 
-	input.Day = day.Format("Mon Jan 2")
+	input := heatmapInput{
+		Title:        fmt.Sprintf("Counts for %s by hour starting", day.Format("Mon Jan 2")),
+		XLabel:       "Hour",
+		YLabel:       "Counter",
+		XValues:      hourOrder,
+		CellWidth:    0.6,
+		CellHeight:   0.6,
+		Square:       true,
+		Annotations:  true,
+		SortCounters: true,
+	}
+
 	for _, c := range cs {
-		hours := []inputCounterHour{}
+		var values []heatmapInputValue
 		for _, v := range c.series {
-			hours = append(hours, inputCounterHour{Hour: v.tr.begin.Hour(), Count: v.val})
+			values = append(values, heatmapInputValue{
+				X:     fmt.Sprintf("%02d", v.tr.begin.Hour()),
+				Count: v.val,
+			})
 		}
 		name := cmp.Or(c.counter.ShortName, c.counter.Name)
-		input.Counters = append(input.Counters, inputCounter{Name: name, Hours: hours, Missing: len(c.series) == 0})
+		input.Counters = append(input.Counters, heatmapInputCounter{
+			Name:    name,
+			Missing: len(c.series) == 0,
+			Values:  values,
+		})
 	}
 
-	imgBytes, err := runUVScript(ctx, "day-heatmap.py", input)
+	imgBytes, err := runUVScript(ctx, "heatmap.py", input)
 	if err != nil {
 		return nil, "", errutil.With(err)
 	}

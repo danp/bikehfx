@@ -73,6 +73,12 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 
 	yearRange := newTimeRangeDate(time.Date(yeart.Year(), 1, 1, 0, 0, 0, 0, yeart.Location()), 1, 0, 0)
 
+	yearDays := yearRange.splitDate(0, 0, 1)
+	yearDaySeries, err := trq.query(ctx, yearDays...)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+
 	yearRanges := []timeRange{yearRange}
 	for year := yearRange.begin.Year() - 1; year >= 2017 && len(yearRanges) < 8; year-- {
 		diff := yearRange.begin.Year() - year
@@ -269,6 +275,16 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 		pastThreeYearsWeekCountsByCounterByYear[cs.counter.ID] = pastThreeYearsWeekCountsByYear
 	}
 
+	dayCountsByCounter := make(map[string]map[time.Time]int)
+	for _, cs := range yearDaySeries {
+		counts := make(map[time.Time]int, len(cs.series))
+		for _, s := range cs.series {
+			counts[s.tr.begin] += s.val
+		}
+		dayCountsByCounter[cs.counter.ID] = counts
+	}
+	yearHeatmapAxis := newYearHeatmapAxis(yearRange)
+
 	counterIDs := slices.Collect(maps.Keys(countersByID))
 	slices.SortFunc(counterIDs, func(a, b string) int {
 		return cmp.Compare(counterName(countersByID[a]), counterName(countersByID[b]))
@@ -356,16 +372,137 @@ func yearPost(ctx context.Context, yeart time.Time, trq counterbaseTimeRangeQuer
 			return nil, errutil.With(err)
 		}
 
+		heatmapImage, heatmapAlt, err := buildYearCounterHeatmap(ctx, c, yearRange, yearHeatmapAxis, dayCountsByCounter[id])
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		media := []postMedia{
+			{b: gr2, altText: altText2},
+			{b: gr3, altText: fmt.Sprintf("Chart with line per year's total count by week for %v for recent years.", counterName(c))},
+		}
+		if len(heatmapImage) > 0 {
+			media = append(media, postMedia{b: heatmapImage, altText: heatmapAlt})
+		}
+
 		posts = append(posts, post{
-			text: prevYearsPostText,
-			media: []postMedia{
-				{b: gr2, altText: altText2},
-				{b: gr3, altText: fmt.Sprintf("Chart with line per year's total count by week for %v for recent years.", counterName(c))},
-			},
+			text:  prevYearsPostText,
+			media: media,
 		})
 	}
 
 	return posts, nil
+}
+
+type yearHeatmapAxis struct {
+	weekStarts []time.Time
+	xValues    []string
+	xTicks     []heatmapInputTick
+}
+
+func newYearHeatmapAxis(yearRange timeRange) yearHeatmapAxis {
+	start := yearRange.begin
+	for start.Weekday() != time.Sunday {
+		start = start.AddDate(0, 0, -1)
+	}
+	lastWeekStart := yearRange.end.AddDate(0, 0, -1)
+	for lastWeekStart.Weekday() != time.Sunday {
+		lastWeekStart = lastWeekStart.AddDate(0, 0, -1)
+	}
+
+	var weekStarts []time.Time
+	for cur := start; !cur.After(lastWeekStart); cur = cur.AddDate(0, 0, 7) {
+		weekStarts = append(weekStarts, cur)
+	}
+
+	xValues := make([]string, len(weekStarts))
+	for i, ws := range weekStarts {
+		xValues[i] = ws.Format("Jan 2")
+	}
+
+	weekIndex := make(map[time.Time]int, len(weekStarts))
+	for i, ws := range weekStarts {
+		weekIndex[ws] = i
+	}
+
+	var xTicks []heatmapInputTick
+	loc := yearRange.begin.Location()
+	year := yearRange.begin.Year()
+	for month := time.January; month <= time.December; month++ {
+		firstOfMonth := time.Date(year, month, 1, 0, 0, 0, 0, loc)
+		weekStart := firstOfMonth
+		for weekStart.Weekday() != time.Sunday {
+			weekStart = weekStart.AddDate(0, 0, -1)
+		}
+		if idx, ok := weekIndex[weekStart]; ok {
+			xTicks = append(xTicks, heatmapInputTick{Position: idx, Label: firstOfMonth.Format("Jan")})
+		}
+	}
+
+	return yearHeatmapAxis{
+		weekStarts: weekStarts,
+		xValues:    xValues,
+		xTicks:     xTicks,
+	}
+}
+
+func buildYearCounterHeatmap(ctx context.Context, counter directory.Counter, yearRange timeRange, axis yearHeatmapAxis, counts map[time.Time]int) ([]byte, string, error) {
+	if len(axis.weekStarts) == 0 || len(axis.xValues) == 0 || len(counts) == 0 {
+		return nil, "", nil
+	}
+
+	dayRows := []struct {
+		name   string
+		offset int
+	}{
+		{"Sun", 0},
+		{"Mon", 1},
+		{"Tue", 2},
+		{"Wed", 3},
+		{"Thu", 4},
+		{"Fri", 5},
+		{"Sat", 6},
+	}
+
+	input := heatmapInput{
+		Title:      fmt.Sprintf("%v %v daily counts", counterName(counter), yearRange.begin.Format("2006")),
+		XLabel:     "Week (starting Sunday)",
+		YLabel:     "Day",
+		XValues:    axis.xValues,
+		XTicks:     axis.xTicks,
+		CellWidth:  0.35,
+		CellHeight: 0.35,
+		Square:     true,
+		XTickFont:  8,
+		YTickFont:  8,
+		AxisFont:   9,
+		TitleFont:  12,
+	}
+
+	for _, row := range dayRows {
+		var values []heatmapInputValue
+		for i, ws := range axis.weekStarts {
+			day := ws.AddDate(0, 0, row.offset)
+			if day.Before(yearRange.begin) || !day.Before(yearRange.end) {
+				continue
+			}
+			if val, ok := counts[day]; ok {
+				values = append(values, heatmapInputValue{X: axis.xValues[i], Count: val})
+			}
+		}
+		input.Counters = append(input.Counters, heatmapInputCounter{
+			Name:   row.name,
+			Values: values,
+		})
+	}
+
+	imgBytes, err := runUVScript(ctx, "heatmap.py", input)
+	if err != nil {
+		return nil, "", errutil.With(err)
+	}
+
+	alt := fmt.Sprintf("Heatmap of daily bikes counted for %v in %v arranged by week (columns) and day of week (rows).", counterName(counter), yearRange.begin.Format("2006"))
+	return imgBytes, alt, nil
 }
 
 func yearPostText(yearRange timeRange, cs []counterSeries, records map[string]recordKind) string {

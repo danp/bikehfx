@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -565,33 +566,49 @@ func (q counterbaseTimeRangeQuerier) queryCounterSeries(ctx context.Context, cou
 }
 
 func (q counterbaseTimeRangeQuerier) timeRangeValues(ctx context.Context, counterID string, trs []timeRange) ([]timeRangeValue, error) {
-	var whens []string
-	for _, tr := range trs {
-		when := fmt.Sprintf("when time >= %d and time < %d then %d", tr.begin.Unix(), tr.end.Unix(), tr.begin.Unix())
-		whens = append(whens, when)
-	}
-	caseWhen := "case " + strings.Join(whens, " ") + " end"
-
-	qq := fmt.Sprintf("select %s as time, sum(value) from counter_data where counter_id='%s' and time >= %d and time < %d group by 1", caseWhen, counterID, trs[0].begin.Unix(), trs[len(trs)-1].end.Unix())
-	pts, err := q.querier.Query(ctx, qq)
-	if err != nil {
-		return nil, errutil.With(err)
-	}
-
-	if len(pts) == 0 {
+	if len(trs) == 0 {
 		return nil, nil
 	}
 
-	var trvs []timeRangeValue
-	for _, tr := range trs {
-		trv := timeRangeValue{tr: tr}
-		for _, p := range pts {
-			if p.Time.Equal(tr.begin) {
-				trv.val = int(p.Value)
-				break
+	trvs := make([]timeRangeValue, len(trs))
+	beginIndex := make(map[int64][]int, len(trs))
+	for i, tr := range trs {
+		trvs[i] = timeRangeValue{tr: tr}
+		beginIndex[tr.begin.Unix()] = append(beginIndex[tr.begin.Unix()], i)
+	}
+
+	for chunk := range slices.Chunk(trs, 100) {
+		whens := make([]string, 0, len(chunk))
+		chunkBegin := chunk[0].begin
+		chunkEnd := chunk[len(chunk)-1].end
+		for _, tr := range chunk {
+			whens = append(whens, fmt.Sprintf("when time >= %d and time < %d then %d", tr.begin.Unix(), tr.end.Unix(), tr.begin.Unix()))
+			if tr.begin.Before(chunkBegin) {
+				chunkBegin = tr.begin
+			}
+			if tr.end.After(chunkEnd) {
+				chunkEnd = tr.end
 			}
 		}
-		trvs = append(trvs, trv)
+
+		caseWhen := "case " + strings.Join(whens, " ") + " end"
+
+		qq := fmt.Sprintf("select %s as time, sum(value) from counter_data where counter_id='%s' and time >= %d and time < %d group by 1", caseWhen, counterID, chunkBegin.Unix(), chunkEnd.Unix())
+		pts, err := q.querier.Query(ctx, qq)
+		if err != nil {
+			return nil, errutil.With(err)
+		}
+
+		if len(pts) == 0 {
+			continue
+		}
+
+		for _, p := range pts {
+			unix := p.Time.Unix()
+			for _, idx := range beginIndex[unix] {
+				trvs[idx].val = int(p.Value)
+			}
+		}
 	}
 
 	return trvs, nil
@@ -745,29 +762,42 @@ func runUVScript(ctx context.Context, script string, input any) ([]byte, error) 
 		return nil, errutil.With(err)
 	}
 
-	td, err := os.MkdirTemp("", "script")
-	if err != nil {
-		return nil, errutil.With(err)
-	}
-	defer os.RemoveAll(td)
+	tmpDir := os.TempDir()
 
 	scriptBytes, err := scripts.ReadFile(filepath.Join("scripts", script))
 	if err != nil {
-		return nil, errutil.With(err)
-	}
-	scriptPath := filepath.Join(td, "script.py")
-	if err := os.WriteFile(scriptPath, scriptBytes, 0600); err != nil {
-		return nil, errutil.With(err)
-	}
-	if err := os.Chmod(scriptPath, 0755); err != nil {
 		return nil, errutil.With(err)
 	}
 	scriptLockBytes, err := scripts.ReadFile(filepath.Join("scripts", script+".lock"))
 	if err != nil {
 		return nil, errutil.With(err)
 	}
-	scriptLockPath := filepath.Join(td, "script.py.lock")
-	if err := os.WriteFile(scriptLockPath, scriptLockBytes, 0600); err != nil {
+
+	scriptSum := fmt.Sprintf("%x-%x", sha256.Sum224(scriptBytes), sha256.Sum224(scriptLockBytes))
+
+	scriptTmp, err := os.CreateTemp(tmpDir, "script-*.py")
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+	if err := os.WriteFile(scriptTmp.Name(), scriptBytes, 0600); err != nil {
+		return nil, errutil.With(err)
+	}
+	if err := os.Chmod(scriptTmp.Name(), 0755); err != nil {
+		return nil, errutil.With(err)
+	}
+	scriptPath := filepath.Join(tmpDir, "script-"+scriptSum+".py")
+	if err := os.Rename(scriptTmp.Name(), scriptPath); err != nil {
+		return nil, errutil.With(err)
+	}
+	scriptLockTmp, err := os.CreateTemp(tmpDir, "script-*.py.lock")
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+	if err := os.WriteFile(scriptLockTmp.Name(), scriptLockBytes, 0600); err != nil {
+		return nil, errutil.With(err)
+	}
+	scriptLockPath := filepath.Join(tmpDir, "script-"+scriptSum+".py.lock")
+	if err := os.Rename(scriptLockTmp.Name(), scriptLockPath); err != nil {
 		return nil, errutil.With(err)
 	}
 
