@@ -41,11 +41,18 @@ import (
 func main() {
 	rootCmd, rootCfg := newRootCmd()
 
+	dailyCmd := newDailyCmd(rootCfg)
+	weeklyCmd := newWeeklyCmd(rootCfg)
+	monthlyCmd := newMonthlyCmd(rootCfg)
+	yearlyCmd := newYearlyCmd(rootCfg)
+	siteCmd := newSiteCmd(rootCfg)
+
 	rootCmd.Subcommands = append(rootCmd.Subcommands,
-		newDailyCmd(rootCfg),
-		newWeeklyCmd(rootCfg),
-		newMonthlyCmd(rootCfg),
-		newYearlyCmd(rootCfg),
+		dailyCmd,
+		weeklyCmd,
+		monthlyCmd,
+		yearlyCmd,
+		siteCmd,
 	)
 
 	if err := rootCmd.Parse(os.Args[1:]); err != nil {
@@ -70,42 +77,58 @@ func main() {
 		ccd: rootCfg.ccd,
 	}
 
-	var tp threadPoster
-	if rootCfg.testMode {
-		tp = posterThreader{p: &savePoster{}, initial: rootCfg.initialPost}
-	} else {
-		var mtt multiPosterThreader
+	if selectedSubcommand(rootCmd, os.Args[1:]) != siteCmd.Name {
+		var tp threadPoster
+		if rootCfg.testMode {
+			tp = posterThreader{p: &savePoster{}, initial: rootCfg.initialPost}
+		} else {
+			var mtt multiPosterThreader
 
-		if rootCfg.mastodonClientID != "" {
-			mt, err := newMastodonTooter(rootCfg.mastodonServer, rootCfg.mastodonClientID, rootCfg.mastodonClientSecret, rootCfg.mastodonAccessToken)
-			if err != nil {
-				log.Println(err)
-			} else {
-				mtt = append(mtt, posterThreader{p: mt, inReplyTo: rootCfg.mastodonInReplyTo, initial: rootCfg.initialPost})
+			if rootCfg.mastodonClientID != "" {
+				mt, err := newMastodonTooter(rootCfg.mastodonServer, rootCfg.mastodonClientID, rootCfg.mastodonClientSecret, rootCfg.mastodonAccessToken)
+				if err != nil {
+					log.Println(err)
+				} else {
+					mtt = append(mtt, posterThreader{p: mt, inReplyTo: rootCfg.mastodonInReplyTo, initial: rootCfg.initialPost})
+				}
 			}
-		}
 
-		if rootCfg.bskyHandle != "" {
-			bt, err := newBlueskyPoster(rootCfg.bskyServer, rootCfg.bskyHandle, rootCfg.bskyPassword)
-			if err != nil {
-				log.Println(err)
-			} else {
-				mtt = append(mtt, posterThreader{p: bt, inReplyTo: rootCfg.bskyInReplyTo, initial: rootCfg.initialPost})
+			if rootCfg.bskyHandle != "" {
+				bt, err := newBlueskyPoster(rootCfg.bskyServer, rootCfg.bskyHandle, rootCfg.bskyPassword)
+				if err != nil {
+					log.Println(err)
+				} else {
+					mtt = append(mtt, posterThreader{p: bt, inReplyTo: rootCfg.bskyInReplyTo, initial: rootCfg.initialPost})
+				}
 			}
+
+			if len(mtt) == 0 {
+				log.Fatal("no post threaders configured")
+			}
+
+			tp = mtt
 		}
 
-		if len(mtt) == 0 {
-			log.Fatal("no post threaders configured")
-		}
-
-		tp = mtt
+		rootCfg.tp = tp
 	}
-
-	rootCfg.tp = tp
 
 	if err := rootCmd.Run(context.Background()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func selectedSubcommand(rootCmd *ffcli.Command, args []string) string {
+	for _, arg := range args {
+		if arg == "" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		for _, sub := range rootCmd.Subcommands {
+			if sub.Name == arg {
+				return arg
+			}
+		}
+	}
+	return ""
 }
 
 type rootConfig struct {
