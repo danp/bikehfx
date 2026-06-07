@@ -183,16 +183,7 @@ func dayPostText(day time.Time, w weather, cs []counterSeries, records map[strin
 		p.Fprintf(&out, "%v%v%v %v\n", v, recordSymbol(records[c.counter.ID]), counterStatusSymbol(c.status), counterName(c.counter))
 	}
 
-	recordKinds := make(map[recordKind]struct{})
-	for _, k := range records {
-		recordKinds[k] = struct{}{}
-	}
-	if len(recordKinds) > 0 {
-		p.Fprintln(&out)
-		for _, k := range slices.Sorted(maps.Keys(recordKinds)) {
-			p.Fprintln(&out, recordNote(k))
-		}
-	}
+	appendPostMarkerNotes(&out, records, cs)
 
 	return strings.TrimSpace(out.String())
 }
@@ -202,6 +193,36 @@ func counterStatusSymbol(status counterDataStatus) string {
 		return "!"
 	}
 	return ""
+}
+
+func appendPostMarkerNotes(out *strings.Builder, records map[string]recordKind, cs []counterSeries) {
+	recordKinds := make(map[recordKind]struct{})
+	for _, k := range records {
+		recordKinds[k] = struct{}{}
+	}
+	hasPartialData := hasPartialCounterData(cs)
+	if len(recordKinds) == 0 && !hasPartialData {
+		return
+	}
+	if out.Len() > 0 {
+		out.WriteString("\n")
+	}
+	p := message.NewPrinter(language.English)
+	for _, k := range slices.Sorted(maps.Keys(recordKinds)) {
+		p.Fprintln(out, recordNote(k))
+	}
+	if hasPartialData {
+		p.Fprintln(out, "! partial data")
+	}
+}
+
+func hasPartialCounterData(cs []counterSeries) bool {
+	for _, c := range cs {
+		if c.status == counterDataStatusPartial {
+			return true
+		}
+	}
+	return false
 }
 
 func counterStatusPostText(asOf time.Time, cs []counterSeries) string {
@@ -241,10 +262,6 @@ func counterStatusPostText(asOf time.Time, cs []counterSeries) string {
 		for _, c := range missing {
 			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), counterLastStatusTime(c).Format("Jan 2"))
 		}
-	}
-	if len(partial) > 0 {
-		p.Fprintln(&out)
-		p.Fprintln(&out, "! partial data")
 	}
 	return strings.TrimSpace(out.String())
 }

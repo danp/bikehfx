@@ -4,7 +4,8 @@ Week review:
 
 123** Apple
 456* Banana
-1 Eggplant
+1! Eggplant
 
 ** all-time record
 * year-to-date record
+! partial data

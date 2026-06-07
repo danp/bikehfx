@@ -5,7 +5,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -408,16 +407,7 @@ func weekPostText(weekRange timeRange, cs []counterSeries, records map[string]re
 		p.Fprintln(&out)
 	}
 
-	recordKinds := make(map[recordKind]struct{})
-	for _, k := range records {
-		recordKinds[k] = struct{}{}
-	}
-	if len(recordKinds) > 0 {
-		p.Fprintln(&out)
-		for _, k := range slices.Sorted(maps.Keys(recordKinds)) {
-			p.Fprintln(&out, recordNote(k))
-		}
-	}
+	appendPostMarkerNotes(&out, records, cs)
 
 	return strings.TrimSpace(out.String())
 }

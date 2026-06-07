@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danp/counterbase/directory"
 	"github.com/hexops/gotextdiff"
 	"github.com/hexops/gotextdiff/myers"
 	"github.com/hexops/gotextdiff/span"
@@ -63,6 +64,7 @@ func TestDayPostText(t *testing.T) {
 			makeSeriesFull("d", "Dragon Fruit", 0, day.AddDate(0, -1, 0), time.Time{}),
 			makeSeriesFull("c", "Coconut", 0, day.AddDate(0, -1, 0), day.AddDate(0, 0, 7)),
 		}
+		cs[3].status = counterDataStatusPartial
 		records := map[string]recordKind{
 			"sum": recordKindAllTime,
 			"a":   recordKindAllTime,
@@ -80,6 +82,25 @@ func TestDayPostText(t *testing.T) {
 		got := dayPostText(day, weather{}, cs, nil)
 		expect(t, "text.txt", got)
 	})
+}
+
+func TestCounterStatusPostText(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2023, 7, 21, 0, 0, 0, 0, time.UTC)
+	cs := []counterSeries{
+		{
+			counter:     directory.Counter{ID: "a", Name: "Apple"},
+			last:        asOf,
+			lastNonZero: asOf,
+			status:      counterDataStatusPartial,
+		},
+	}
+
+	got := counterStatusPostText(asOf, cs)
+	if strings.Contains(got, "! partial data") {
+		t.Fatalf("counterStatusPostText() included partial-data explanation:\n%v", got)
+	}
 }
 
 var unsafeNameRe = regexp.MustCompile(`[^-.\w/]+`)

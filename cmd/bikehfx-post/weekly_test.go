@@ -45,6 +45,7 @@ func TestWeeklyPostText(t *testing.T) {
 			makeSeriesFull("c", "Coconut", 0, week.AddDate(0, -1, 0), week.AddDate(0, 0, 7)),
 			makeSeriesFull("e", "Eggplant", 1, week.AddDate(0, 0, 3), week.AddDate(0, 0, 3)),
 		}
+		cs[4].status = counterDataStatusPartial
 		records := map[string]recordKind{
 			"sum": recordKindAllTime,
 			"a":   recordKindAllTime,
