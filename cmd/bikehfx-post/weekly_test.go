@@ -31,6 +31,9 @@ func TestWeeklyPostText(t *testing.T) {
 		cs := makeSeries(id, name, dayValue)
 		cs.last = last
 		cs.lastNonZero = lastNonZero
+		if counterMissingSince(last, lastNonZero, weekRange.begin) {
+			cs.status = counterDataStatusMissing
+		}
 		return cs
 	}
 

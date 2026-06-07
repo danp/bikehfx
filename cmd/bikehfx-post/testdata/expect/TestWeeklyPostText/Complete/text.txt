@@ -4,11 +4,7 @@ Week review:
 
 123** Apple
 456* Banana
-1 Eggplant (last Jul 26)
+1 Eggplant
 
 ** all-time record
 * year-to-date record
-
-Missing (last):
-Coconut (Jul 30)
-Dragon Fruit (Jun 23)

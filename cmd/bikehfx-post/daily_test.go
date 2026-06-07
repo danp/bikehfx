@@ -46,6 +46,9 @@ func TestDayPostText(t *testing.T) {
 		cs := makeSeries(id, name, dayValue)
 		cs.last = last
 		cs.lastNonZero = lastNonZero
+		if counterMissingSince(last, lastNonZero, day) {
+			cs.status = counterDataStatusMissing
+		}
 		return cs
 	}
 

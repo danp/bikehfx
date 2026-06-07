@@ -90,7 +90,7 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 
 	var cs []counterSeries
 	for _, c := range monthsSeries[0] {
-		if len(c.series) == 0 {
+		if len(c.series) == 0 || c.status == counterDataStatusMissing {
 			continue
 		}
 		cs = append(cs, counterSeries{
@@ -162,6 +162,9 @@ func monthPost(ctx context.Context, montht time.Time, trq counterbaseTimeRangeQu
 			{b: gr, altText: altText},
 		},
 	})
+	if statusPostText := counterStatusPostText(monthRange.end.AddDate(0, 0, -1), monthsSeries[0]); statusPostText != "" {
+		posts = append(posts, post{text: statusPostText})
+	}
 
 	var graph2TRVs []timeRangeValue
 	for i, wr := range monthRanges {
@@ -228,23 +231,17 @@ func monthPostText(monthRange timeRange, cs []counterSeries, records map[string]
 	p := message.NewPrinter(language.English)
 
 	var sum int
-	presentIncompleteIndices := make(map[int]struct{})
-	var presentIndices, missingIndices []int
-	end := monthRange.end.AddDate(0, 0, -1)
+	var presentIndices []int
 	for i, c := range cs {
 		for _, v := range c.series {
 			sum += v.val
 		}
 
-		if c.last.Before(monthRange.begin) || c.lastNonZero.Before(monthRange.begin) {
-			missingIndices = append(missingIndices, i)
+		if len(c.series) == 0 || c.status == counterDataStatusMissing {
 			continue
 		}
 
 		presentIndices = append(presentIndices, i)
-		if c.last.Before(end) || c.lastNonZero.Before(end) {
-			presentIncompleteIndices[i] = struct{}{}
-		}
 	}
 
 	p.Fprintf(&out, "Month review:\n\n%v%v #BikeHfx bikes counted in %v\n\n", sum, recordSymbol(records["sum"]), monthRange.begin.Format("Jan"))
@@ -255,14 +252,7 @@ func monthPostText(monthRange timeRange, cs []counterSeries, records map[string]
 	for _, i := range presentIndices {
 		c := cs[i]
 		v := c.series[len(c.series)-1].val
-		p.Fprintf(&out, "%v%v %v", v, recordSymbol(records[c.counter.ID]), counterName(c.counter))
-		if _, ok := presentIncompleteIndices[i]; ok {
-			last := c.last
-			if !c.lastNonZero.IsZero() {
-				last = c.lastNonZero
-			}
-			p.Fprintf(&out, " (last %v)", last.Format("Jan 2"))
-		}
+		p.Fprintf(&out, "%v%v%v %v", v, recordSymbol(records[c.counter.ID]), counterStatusSymbol(c.status), counterName(c.counter))
 		p.Fprintln(&out)
 	}
 
@@ -274,23 +264,6 @@ func monthPostText(monthRange timeRange, cs []counterSeries, records map[string]
 		p.Fprintln(&out)
 		for _, k := range slices.Sorted(maps.Keys(recordKinds)) {
 			p.Fprintln(&out, recordNote(k))
-		}
-	}
-
-	if len(missingIndices) > 0 {
-		slices.SortFunc(missingIndices, func(i, j int) int {
-			return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
-		})
-
-		p.Fprintln(&out)
-		p.Fprintln(&out, "Missing:")
-		for _, i := range missingIndices {
-			c := cs[i]
-			last := c.last
-			if !c.lastNonZero.IsZero() {
-				last = c.lastNonZero
-			}
-			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), last.Format("Jan 2"))
 		}
 	}
 

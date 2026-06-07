@@ -194,7 +194,7 @@ func generateCounterPage(ctx context.Context, outputDir string, asOfDay, asOfEnd
 		return siteCounterSummary{}, errutil.With(err)
 	}
 
-	last, lastNonZero, err := trq.last(ctx, counter.ID, asOfEnd)
+	last, lastNonZero, _, err := trq.last(ctx, counter, asOfEnd, asOfDay)
 	if err != nil {
 		return siteCounterSummary{}, errutil.With(err)
 	}

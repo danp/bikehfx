@@ -82,6 +82,7 @@ type counterSeries struct {
 	counter     directory.Counter
 	last        time.Time
 	lastNonZero time.Time
+	status      counterDataStatus
 	series      []timeRangeValue
 }
 
@@ -136,9 +137,11 @@ func dayPost(ctx context.Context, day time.Time, trq counterbaseTimeRangeQuerier
 		altText: dat,
 	}}
 
-	return []post{
-		{text: text, media: media},
-	}, nil
+	posts := []post{{text: text, media: media}}
+	if statusPostText := counterStatusPostText(day, cs); statusPostText != "" {
+		posts = append(posts, post{text: statusPostText})
+	}
+	return posts, nil
 }
 
 func dayPostText(day time.Time, w weather, cs []counterSeries, records map[string]recordKind) string {
@@ -147,16 +150,14 @@ func dayPostText(day time.Time, w weather, cs []counterSeries, records map[strin
 	p := message.NewPrinter(language.English)
 
 	var sum int
-	var presentIndices, missingIndices []int
+	var presentIndices []int
 	for i, c := range cs {
 		for _, v := range c.series {
 			sum += v.val
 		}
-		if !c.last.Before(day) && !c.lastNonZero.Before(day) {
+		if len(c.series) > 0 && c.status != counterDataStatusMissing {
 			presentIndices = append(presentIndices, i)
-			continue
 		}
-		missingIndices = append(missingIndices, i)
 	}
 
 	p.Fprintf(&out, "%v%v #BikeHfx bikes counted %v\n\n", sum, recordSymbol(records["sum"]), day.Format("Mon Jan 2"))
@@ -179,7 +180,7 @@ func dayPostText(day time.Time, w weather, cs []counterSeries, records map[strin
 	for _, i := range presentIndices {
 		c := cs[i]
 		v := c.series[len(c.series)-1].val
-		p.Fprintf(&out, "%v%v %v\n", v, recordSymbol(records[c.counter.ID]), counterName(c.counter))
+		p.Fprintf(&out, "%v%v%v %v\n", v, recordSymbol(records[c.counter.ID]), counterStatusSymbol(c.status), counterName(c.counter))
 	}
 
 	recordKinds := make(map[recordKind]struct{})
@@ -193,24 +194,67 @@ func dayPostText(day time.Time, w weather, cs []counterSeries, records map[strin
 		}
 	}
 
-	if len(missingIndices) > 0 {
-		slices.SortFunc(missingIndices, func(i, j int) int {
-			return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
-		})
+	return strings.TrimSpace(out.String())
+}
 
-		p.Fprintln(&out)
-		p.Fprintln(&out, "Missing (last):")
-		for _, i := range missingIndices {
-			c := cs[i]
-			last := c.last
-			if !c.lastNonZero.IsZero() {
-				last = c.lastNonZero
-			}
-			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), last.Format("Jan 2"))
+func counterStatusSymbol(status counterDataStatus) string {
+	if status == counterDataStatusPartial {
+		return "!"
+	}
+	return ""
+}
+
+func counterStatusPostText(asOf time.Time, cs []counterSeries) string {
+	var partial, missing []counterSeries
+	for _, c := range cs {
+		switch c.status {
+		case counterDataStatusPartial:
+			partial = append(partial, c)
+		case counterDataStatusMissing:
+			missing = append(missing, c)
 		}
 	}
+	if len(partial) == 0 && len(missing) == 0 {
+		return ""
+	}
 
+	slices.SortFunc(partial, func(a, b counterSeries) int {
+		return cmp.Compare(counterName(a.counter), counterName(b.counter))
+	})
+	slices.SortFunc(missing, func(a, b counterSeries) int {
+		return cmp.Compare(counterName(a.counter), counterName(b.counter))
+	})
+
+	var out strings.Builder
+	p := message.NewPrinter(language.English)
+	if len(partial) > 0 {
+		p.Fprintln(&out, "Partial (last):")
+		for _, c := range partial {
+			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), counterLastStatusTime(c).Format("Jan 2"))
+		}
+	}
+	if len(missing) > 0 {
+		if out.Len() > 0 {
+			p.Fprintln(&out)
+		}
+		p.Fprintln(&out, "Missing (last):")
+		for _, c := range missing {
+			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), counterLastStatusTime(c).Format("Jan 2"))
+		}
+	}
+	if len(partial) > 0 {
+		p.Fprintln(&out)
+		p.Fprintln(&out, "! partial data")
+	}
 	return strings.TrimSpace(out.String())
+}
+
+func counterLastStatusTime(c counterSeries) time.Time {
+	last := c.last
+	if !c.lastNonZero.IsZero() {
+		last = c.lastNonZero
+	}
+	return last
 }
 
 type uvScriptHeatmaper struct{}

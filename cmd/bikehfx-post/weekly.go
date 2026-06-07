@@ -106,7 +106,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 
 	var cs []counterSeries
 	for _, c := range weeksSeries[0] {
-		if len(c.series) == 0 {
+		if len(c.series) == 0 || c.status == counterDataStatusMissing {
 			continue
 		}
 		cs = append(cs, counterSeries{
@@ -274,6 +274,9 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 	p1.media = append(p1.media, postMedia{b: gr, altText: altText})
 
 	posts = append(posts, p1)
+	if statusPostText := counterStatusPostText(weekRange.end.AddDate(0, 0, -1), weeksSeries[0]); statusPostText != "" {
+		posts = append(posts, post{text: statusPostText})
+	}
 
 	var graph2TRVs []timeRangeValue
 	for i, wr := range weekRanges {
@@ -380,23 +383,17 @@ func weekPostText(weekRange timeRange, cs []counterSeries, records map[string]re
 	p := message.NewPrinter(language.English)
 
 	var sum int
-	presentIncompleteIndices := make(map[int]struct{})
-	var presentIndices, missingIndices []int
-	end := weekRange.end.AddDate(0, 0, -1)
+	var presentIndices []int
 	for i, c := range cs {
 		for _, v := range c.series {
 			sum += v.val
 		}
 
-		if c.last.Before(weekRange.begin) || c.lastNonZero.Before(weekRange.begin) {
-			missingIndices = append(missingIndices, i)
+		if len(c.series) == 0 || c.status == counterDataStatusMissing {
 			continue
 		}
 
 		presentIndices = append(presentIndices, i)
-		if c.last.Before(end) || c.lastNonZero.Before(end) {
-			presentIncompleteIndices[i] = struct{}{}
-		}
 	}
 
 	p.Fprintf(&out, "Week review:\n\n%v%v #BikeHfx bikes counted week ending %v\n\n", sum, recordSymbol(records["sum"]), weekRange.end.AddDate(0, 0, -1).Format("Mon Jan 2"))
@@ -407,14 +404,7 @@ func weekPostText(weekRange timeRange, cs []counterSeries, records map[string]re
 	for _, i := range presentIndices {
 		c := cs[i]
 		v := c.series[len(c.series)-1].val
-		p.Fprintf(&out, "%v%v %v", v, recordSymbol(records[c.counter.ID]), counterName(c.counter))
-		if _, ok := presentIncompleteIndices[i]; ok {
-			last := c.last
-			if !c.lastNonZero.IsZero() {
-				last = c.lastNonZero
-			}
-			p.Fprintf(&out, " (last %v)", last.Format("Jan 2"))
-		}
+		p.Fprintf(&out, "%v%v%v %v", v, recordSymbol(records[c.counter.ID]), counterStatusSymbol(c.status), counterName(c.counter))
 		p.Fprintln(&out)
 	}
 
@@ -426,23 +416,6 @@ func weekPostText(weekRange timeRange, cs []counterSeries, records map[string]re
 		p.Fprintln(&out)
 		for _, k := range slices.Sorted(maps.Keys(recordKinds)) {
 			p.Fprintln(&out, recordNote(k))
-		}
-	}
-
-	if len(missingIndices) > 0 {
-		slices.SortFunc(missingIndices, func(i, j int) int {
-			return cmp.Compare(counterName(cs[i].counter), counterName(cs[j].counter))
-		})
-
-		p.Fprintln(&out)
-		p.Fprintln(&out, "Missing (last):")
-		for _, i := range missingIndices {
-			c := cs[i]
-			last := c.last
-			if !c.lastNonZero.IsZero() {
-				last = c.lastNonZero
-			}
-			p.Fprintf(&out, "%v (%v)\n", counterName(c.counter), last.Format("Jan 2"))
 		}
 	}
 

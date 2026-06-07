@@ -547,8 +547,9 @@ func (q counterbaseTimeRangeQuerier) query(ctx context.Context, trs ...timeRange
 		return nil, errutil.With(err)
 	}
 
+	missingSince := trs[len(trs)-1].end.AddDate(0, 0, -1)
 	for _, counter := range counters {
-		last, lastNonZero, err := q.last(ctx, counter.ID, trs[len(trs)-1].end)
+		last, lastNonZero, status, err := q.last(ctx, counter, trs[len(trs)-1].end, missingSince)
 		if err != nil {
 			return nil, errutil.With(err)
 		}
@@ -560,9 +561,10 @@ func (q counterbaseTimeRangeQuerier) query(ctx context.Context, trs ...timeRange
 			found = true
 			cs[i].last = last
 			cs[i].lastNonZero = lastNonZero
+			cs[i].status = status
 		}
 		if !found {
-			cs = append(cs, counterSeries{counter: counter, last: last, lastNonZero: lastNonZero})
+			cs = append(cs, counterSeries{counter: counter, last: last, lastNonZero: lastNonZero, status: status})
 		}
 	}
 	return cs, nil
@@ -637,8 +639,52 @@ func (q counterbaseTimeRangeQuerier) timeRangeValues(ctx context.Context, counte
 	return trvs, nil
 }
 
-func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counterID string, until time.Time) (all, nonZero time.Time, _ error) {
-	qq := fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s' and time <= %v", counterID, until.Unix())
+type counterDataStatus int
+
+const (
+	counterDataStatusOK counterDataStatus = iota
+	counterDataStatusPartial
+	counterDataStatusMissing
+)
+
+func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counter directory.Counter, until, missingSince time.Time) (all, nonZero time.Time, status counterDataStatus, _ error) {
+	counterAll, counterNonZero, err := q.directionLast(ctx, counter.ID, "", until)
+	if err != nil {
+		return time.Time{}, time.Time{}, counterDataStatusOK, errutil.With(err)
+	}
+	status = counterDataStatusOK
+	if counterMissingSince(counterAll, counterNonZero, missingSince) {
+		status = counterDataStatusMissing
+	}
+
+	if len(counter.Directions) > 1 {
+		for _, dir := range counter.Directions {
+			dirAll, dirNonZero, err := q.directionLast(ctx, counter.ID, dir.ID, until)
+			if err != nil {
+				return time.Time{}, time.Time{}, counterDataStatusOK, errutil.With(err)
+			}
+			if all.IsZero() || dirAll.IsZero() || dirAll.Before(all) {
+				all = dirAll
+			}
+			if nonZero.IsZero() || dirNonZero.IsZero() || dirNonZero.Before(nonZero) {
+				nonZero = dirNonZero
+			}
+		}
+		if status == counterDataStatusOK && (all.IsZero() || nonZero.IsZero() || counterMissingSince(all, nonZero, missingSince)) {
+			status = counterDataStatusPartial
+		}
+		return all, nonZero, status, nil
+	}
+
+	return counterAll, counterNonZero, status, nil
+}
+
+func (q counterbaseTimeRangeQuerier) directionLast(ctx context.Context, counterID, directionID string, until time.Time) (all, nonZero time.Time, _ error) {
+	directionCond := ""
+	if directionID != "" {
+		directionCond = fmt.Sprintf(" and direction_id='%s'", directionID)
+	}
+	qq := fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s'%s and time <= %v", counterID, directionCond, until.Unix())
 	pts, err := q.querier.Query(ctx, qq)
 	if err != nil {
 		return time.Time{}, time.Time{}, errutil.With(err)
@@ -650,7 +696,7 @@ func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counterID string,
 		return time.Time{}, time.Time{}, errutil.New(errutil.Tags{"points": len(pts)})
 	}
 	all = pts[0].Time
-	qq = fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s' and time <= %v and value > 0", counterID, until.Unix())
+	qq = fmt.Sprintf("select max(time) as time, 1 from counter_data where counter_id='%s'%s and time <= %v and value > 0", counterID, directionCond, until.Unix())
 	pts, err = q.querier.Query(ctx, qq)
 	if err != nil {
 		return time.Time{}, time.Time{}, errutil.With(err)
@@ -662,6 +708,10 @@ func (q counterbaseTimeRangeQuerier) last(ctx context.Context, counterID string,
 		return time.Time{}, time.Time{}, errutil.New(errutil.Tags{"points": len(pts)})
 	}
 	return all, pts[0].Time, nil
+}
+
+func counterMissingSince(last, lastNonZero, since time.Time) bool {
+	return last.Before(since) || lastNonZero.Before(since)
 }
 
 type cyclingCounterDirectory interface {
