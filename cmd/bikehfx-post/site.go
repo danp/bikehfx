@@ -81,6 +81,16 @@ type sitePageFrontMatter struct {
 	TopWeeks        []siteRankRow     `json:"top_weeks,omitempty"`
 	TopMonths       []siteRankRow     `json:"top_months,omitempty"`
 	Charts          map[string]string `json:"charts,omitempty"`
+	StatusRows      []siteStatusRowFM `json:"status_rows,omitempty"`
+}
+
+type siteStatusRowFM struct {
+	Status     string `json:"status"`
+	Counter    string `json:"counter"`
+	CounterURL string `json:"counter_url"`
+	Problem    string `json:"problem"`
+	Since      string `json:"since,omitempty"`
+	AgeDays    int    `json:"age_days"`
 }
 
 type siteRankRow struct {
@@ -112,14 +122,14 @@ func generateSite(ctx context.Context, outputDir string, asOfDay time.Time, topN
 
 	summaries := make([]siteCounterSummary, len(counters))
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, groupCtx := errgroup.WithContext(ctx)
 	g.SetLimit(siteWorkerLimit(len(counters)))
 
 	for i, counter := range counters {
 		i := i
 		counter := counter
 		g.Go(func() error {
-			summary, err := generateCounterPage(ctx, outputDir, asOfDay, asOfEnd, topN, counter, trq)
+			summary, err := generateCounterPage(groupCtx, outputDir, asOfDay, asOfEnd, topN, counter, trq)
 			if err != nil {
 				return errutil.With(err)
 			}
@@ -136,6 +146,10 @@ func generateSite(ctx context.Context, outputDir string, asOfDay time.Time, topN
 		if err := writeSectionIndexPage(outputDir, asOfDay, summaries); err != nil {
 			return errutil.With(err)
 		}
+	}
+
+	if err := writeCounterStatusPage(ctx, outputDir, asOfDay, asOfEnd, counters, trq); err != nil {
+		return errutil.With(err)
 	}
 
 	return nil
@@ -468,6 +482,188 @@ func writeSectionIndexPage(outputDir string, asOfDay time.Time, summaries []site
 	fmt.Fprintf(&body, "%d counters are included here, with %d currently active.\n", len(summaries), activeCount)
 
 	return writeMarkdownPage(filepath.Join(outputDir, "_index.md"), fm, body.String())
+}
+
+type siteCounterStatusRow struct {
+	Name    string
+	Slug    string
+	Status  string
+	Problem string
+	Since   time.Time
+	AgeDays int
+}
+
+func writeCounterStatusPage(ctx context.Context, outputDir string, asOfDay, asOfEnd time.Time, counters []directory.Counter, trq counterbaseTimeRangeQuerier) error {
+	rows := make([]siteCounterStatusRow, 0, len(counters))
+	for _, counter := range counters {
+		if !counter.IsActive() {
+			continue
+		}
+		row, err := counterStatusRow(ctx, counter, asOfDay, asOfEnd, trq)
+		if err != nil {
+			return errutil.With(err)
+		}
+		rows = append(rows, row)
+	}
+
+	slices.SortFunc(rows, func(a, b siteCounterStatusRow) int {
+		if c := statusRank(a.Status) - statusRank(b.Status); c != 0 {
+			return c
+		}
+		if a.Status != "green" && a.AgeDays != b.AgeDays {
+			return b.AgeDays - a.AgeDays
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	fm := sitePageFrontMatter{
+		Title:      "Counter Status",
+		Type:       "bikehfxstats-status",
+		AsOf:       asOfDay.Format("2006-01-02"),
+		StatusRows: statusRowsFrontMatter(rows),
+	}
+
+	var body strings.Builder
+	fmt.Fprintf(&body, "Active counter status generated through %s.", asOfDay.Format("2006-01-02"))
+
+	return writeMarkdownPage(filepath.Join(outputDir, "status", "_index.md"), fm, body.String())
+}
+
+func statusRowsFrontMatter(rows []siteCounterStatusRow) []siteStatusRowFM {
+	out := make([]siteStatusRowFM, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, siteStatusRowFM{
+			Status:     row.Status,
+			Counter:    row.Name,
+			CounterURL: "../" + row.Slug + "/",
+			Problem:    row.Problem,
+			Since:      formatDate(row.Since),
+			AgeDays:    row.AgeDays,
+		})
+	}
+	return out
+}
+
+func counterStatusRow(ctx context.Context, counter directory.Counter, asOfDay, asOfEnd time.Time, trq counterbaseTimeRangeQuerier) (siteCounterStatusRow, error) {
+	last, lastNonZero, status, err := trq.last(ctx, counter, asOfEnd, asOfDay)
+	if err != nil {
+		return siteCounterStatusRow{}, errutil.With(err)
+	}
+
+	row := siteCounterStatusRow{
+		Name:   counter.Name,
+		Slug:   counterSlug(counter),
+		Status: siteStatusName(status),
+	}
+
+	switch status {
+	case counterDataStatusMissing:
+		row.Problem = counterMissingProblem(last, lastNonZero, asOfDay)
+		row.Since = counterLastStatusTime(counterSeries{last: last, lastNonZero: lastNonZero})
+	case counterDataStatusPartial:
+		problem, since, err := counterPartialProblem(ctx, counter, asOfDay, asOfEnd, trq)
+		if err != nil {
+			return siteCounterStatusRow{}, errutil.With(err)
+		}
+		row.Problem = problem
+		row.Since = since
+	default:
+		row.Problem = "OK"
+		row.Since = last
+	}
+
+	row.AgeDays = calendarDaysBetween(row.Since, asOfDay)
+	return row, nil
+}
+
+func counterPartialProblem(ctx context.Context, counter directory.Counter, asOfDay, asOfEnd time.Time, trq counterbaseTimeRangeQuerier) (string, time.Time, error) {
+	type directionProblem struct {
+		text  string
+		since time.Time
+	}
+	var problems []directionProblem
+	for _, dir := range counter.Directions {
+		last, lastNonZero, err := trq.directionLast(ctx, counter.ID, dir.ID, asOfEnd)
+		if err != nil {
+			return "", time.Time{}, errutil.With(err)
+		}
+		dirName := dir.Name
+		if dirName == "" {
+			dirName = dir.ID
+		}
+		if last.IsZero() || last.Before(asOfDay) {
+			problems = append(problems, directionProblem{text: "No " + dirName + " data", since: last})
+			continue
+		}
+		if lastNonZero.IsZero() || lastNonZero.Before(asOfDay) {
+			problems = append(problems, directionProblem{text: "No positive " + dirName + " counts", since: lastNonZero})
+		}
+	}
+	if len(problems) == 0 {
+		return "partial data", time.Time{}, nil
+	}
+	slices.SortFunc(problems, func(a, b directionProblem) int {
+		if a.since.IsZero() && !b.since.IsZero() {
+			return -1
+		}
+		if !a.since.IsZero() && b.since.IsZero() {
+			return 1
+		}
+		return a.since.Compare(b.since)
+	})
+	texts := make([]string, 0, len(problems))
+	for _, problem := range problems {
+		texts = append(texts, problem.text)
+	}
+	return strings.Join(texts, "; "), problems[0].since, nil
+}
+
+func counterMissingProblem(last, lastNonZero, asOfDay time.Time) string {
+	if last.IsZero() {
+		return "No data"
+	}
+	if last.Before(asOfDay) {
+		return "No data"
+	}
+	if lastNonZero.IsZero() || lastNonZero.Before(asOfDay) {
+		return "No positive counts"
+	}
+	return "Missing data"
+}
+
+func siteStatusName(status counterDataStatus) string {
+	switch status {
+	case counterDataStatusMissing:
+		return "red"
+	case counterDataStatusPartial:
+		return "yellow"
+	default:
+		return "green"
+	}
+}
+
+func statusRank(status string) int {
+	switch status {
+	case "red":
+		return 0
+	case "yellow":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func calendarDaysBetween(begin, end time.Time) int {
+	if begin.IsZero() || end.IsZero() {
+		return 0
+	}
+	beginDate := time.Date(begin.Year(), begin.Month(), begin.Day(), 0, 0, 0, 0, end.Location())
+	endDate := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
+	var days int
+	for d := beginDate; d.Before(endDate); d = d.AddDate(0, 0, 1) {
+		days++
+	}
+	return days
 }
 
 func writeMarkdownPage(path string, fm sitePageFrontMatter, body string) error {
