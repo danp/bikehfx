@@ -705,7 +705,7 @@ func counterCoverageRange(counter directory.Counter, asOfEnd time.Time) timeRang
 		if sr.Start.IsZero() {
 			continue
 		}
-		if sr.Start.Time.Before(begin) {
+		if sr.Start.Before(begin) {
 			begin = sr.Start.Time
 		}
 	}

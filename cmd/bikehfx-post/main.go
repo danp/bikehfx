@@ -490,10 +490,10 @@ func yearWeekChart(trvs map[int]map[int]timeRangeValue, title string) ([]byte, e
 			return nil, errutil.With(err)
 		}
 
-		ln.LineStyle.Color = plotutil.Color(year)
-		ln.LineStyle.Dashes = plotutil.Dashes(year)
+		ln.Color = plotutil.Color(year)
+		ln.Dashes = plotutil.Dashes(year)
 
-		ln.LineStyle.Width = vg.Points(2)
+		ln.Width = vg.Points(2)
 
 		p.Add(ln)
 
