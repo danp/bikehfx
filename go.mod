@@ -1,6 +1,6 @@
 module github.com/danp/bikehfx
 
-go 1.24.0
+go 1.26
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20241223053147-c130614850e5
@@ -13,6 +13,7 @@ require (
 	github.com/mattn/go-mastodon v0.0.6
 	github.com/peterbourgon/ff/v3 v3.3.1
 	golang.org/x/image v0.19.0
+	golang.org/x/sync v0.19.0
 	golang.org/x/text v0.32.0
 	gonum.org/v1/plot v0.14.0
 )
@@ -74,7 +75,6 @@ require (
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/tools v0.40.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
