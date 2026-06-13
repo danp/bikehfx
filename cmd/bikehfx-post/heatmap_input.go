@@ -9,6 +9,7 @@ type heatmapInput struct {
 	CellHeight     float64               `json:"cell_height"`
 	Square         bool                  `json:"square"`
 	Annotations    bool                  `json:"annotations"`
+	ColorScale     string                `json:"color_scale,omitempty"`
 	XTicks         []heatmapInputTick    `json:"x_ticks,omitempty"`
 	SortCounters   bool                  `json:"sort_counters"`
 	XTickRotation  float64               `json:"x_tick_rotation,omitempty"`

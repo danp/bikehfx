@@ -291,6 +291,7 @@ func (uvScriptHeatmaper) heatmap(ctx context.Context, day time.Time, cs []counte
 		CellHeight:   0.6,
 		Square:       true,
 		Annotations:  true,
+		ColorScale:   "sqrt",
 		SortCounters: true,
 	}
 

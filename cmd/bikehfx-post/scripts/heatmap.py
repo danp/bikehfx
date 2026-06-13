@@ -83,6 +83,29 @@ def build_annotations(data, enabled):
     return annotations.map(lambda v: f"{int(v)}" if pd.notna(v) else "")
 
 
+def scale_color_data(data, scale):
+    if scale == "sqrt":
+        return np.sqrt(data)
+
+    return data
+
+
+def color_scale_bounds(data, scale):
+    if scale == "sqrt":
+        finite = data.to_numpy(dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if finite.size == 0:
+            return None, None
+        return 0, np.sqrt(finite.max())
+
+    return None, None
+
+
+def validate_color_scale(scale):
+    if scale not in ("", "linear", "sqrt"):
+        raise ValueError(f"unsupported color scale: {scale}")
+
+
 def set_ticks(ax, parsed, x_values):
     font_size = parsed.get("x_tick_font", 12)
     rotation = parsed.get("x_tick_rotation", 0)
@@ -117,8 +140,12 @@ def main():
     )
 
     annotations = build_annotations(heatmap_data, parsed.get("annotations", True))
+    color_scale = parsed.get("color_scale", "linear")
+    validate_color_scale(color_scale)
+    color_data = scale_color_data(heatmap_data, color_scale)
+    vmin, vmax = color_scale_bounds(heatmap_data, color_scale)
 
-    num_counters = max(len(heatmap_data.index), 1)
+    num_counters = max(len(color_data.index), 1)
     num_columns = max(len(x_values), 1)
 
     cell_width = parsed.get("cell_width", 0.6)
@@ -132,7 +159,7 @@ def main():
     ax = fig.add_subplot(111)
 
     sns.heatmap(
-        heatmap_data,
+        color_data,
         cmap="viridis",
         linewidths=0.2,
         linecolor="gray",
@@ -140,8 +167,10 @@ def main():
         fmt="",
         square=square,
         ax=ax,
-        mask=heatmap_data.isna(),
+        mask=color_data.isna(),
         cbar=False,
+        vmin=vmin,
+        vmax=vmax,
         annot_kws={"fontsize": parsed.get("annotation_font", 10)},
     )
 

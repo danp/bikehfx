@@ -165,6 +165,7 @@ func weekPost(ctx context.Context, weekt time.Time, trq counterbaseTimeRangeQuer
 			CellHeight:   0.8,
 			Square:       true,
 			Annotations:  true,
+			ColorScale:   "sqrt",
 			SortCounters: true,
 		}
 
