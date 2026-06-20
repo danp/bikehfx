@@ -63,25 +63,26 @@ type siteCounterSummary struct {
 }
 
 type sitePageFrontMatter struct {
-	Title           string            `json:"title"`
-	Type            string            `json:"type,omitempty"`
-	AsOf            string            `json:"as_of"`
-	CounterID       string            `json:"counter_id,omitempty"`
-	ShortName       string            `json:"short_name,omitempty"`
-	Active          bool              `json:"active,omitempty"`
-	Location        string            `json:"location,omitempty"`
-	LastSeen        string            `json:"last_seen,omitempty"`
-	LastNonZeroSeen string            `json:"last_non_zero_seen,omitempty"`
-	TotalYear       int               `json:"total_year,omitempty"`
-	TotalAllTime    int               `json:"total_all_time,omitempty"`
-	RecentDay       sitePeriodValue   `json:"recent_day,omitempty"`
-	RecentSevenDays sitePeriodValue   `json:"recent_seven_days,omitempty"`
-	MonthToDate     sitePeriodValue   `json:"month_to_date,omitempty"`
-	TopDays         []siteRankRow     `json:"top_days,omitempty"`
-	TopWeeks        []siteRankRow     `json:"top_weeks,omitempty"`
-	TopMonths       []siteRankRow     `json:"top_months,omitempty"`
-	Charts          map[string]string `json:"charts,omitempty"`
-	StatusRows      []siteStatusRowFM `json:"status_rows,omitempty"`
+	Title           string                 `json:"title"`
+	Type            string                 `json:"type,omitempty"`
+	AsOf            string                 `json:"as_of"`
+	CounterID       string                 `json:"counter_id,omitempty"`
+	ShortName       string                 `json:"short_name,omitempty"`
+	Active          bool                   `json:"active,omitempty"`
+	Location        string                 `json:"location,omitempty"`
+	LastSeen        string                 `json:"last_seen,omitempty"`
+	LastNonZeroSeen string                 `json:"last_non_zero_seen,omitempty"`
+	TotalYear       int                    `json:"total_year,omitempty"`
+	TotalAllTime    int                    `json:"total_all_time,omitempty"`
+	RecentDay       sitePeriodValue        `json:"recent_day,omitempty"`
+	RecentSevenDays sitePeriodValue        `json:"recent_seven_days,omitempty"`
+	MonthToDate     sitePeriodValue        `json:"month_to_date,omitempty"`
+	TopDays         []siteRankRow          `json:"top_days,omitempty"`
+	TopWeeks        []siteRankRow          `json:"top_weeks,omitempty"`
+	TopMonths       []siteRankRow          `json:"top_months,omitempty"`
+	YearHeatmaps    []siteYearHeatmapChart `json:"year_heatmaps,omitempty"`
+	Charts          map[string]string      `json:"charts,omitempty"`
+	StatusRows      []siteStatusRowFM      `json:"status_rows,omitempty"`
 }
 
 type siteStatusRowFM struct {
@@ -234,10 +235,12 @@ func generateCounterPage(ctx context.Context, outputDir string, asOfDay, asOfEnd
 		return siteCounterSummary{}, errutil.With(err)
 	}
 
-	charts, err := generateCounterCharts(ctx, pageDir, counter, asOfEnd, yearRange, trq)
+	yearHeatmaps, charts, err := generateCounterCharts(ctx, pageDir, counter, asOfEnd, trq)
 	if err != nil {
 		return siteCounterSummary{}, errutil.With(err)
 	}
+	yearHeatmapsNewestFirst := slices.Clone(yearHeatmaps)
+	slices.Reverse(yearHeatmapsNewestFirst)
 
 	fm := sitePageFrontMatter{
 		Title:           counter.Name,
@@ -257,6 +260,7 @@ func generateCounterPage(ctx context.Context, outputDir string, asOfDay, asOfEnd
 		TopDays:         topDays,
 		TopWeeks:        topWeeks,
 		TopMonths:       topMonths,
+		YearHeatmaps:    yearHeatmapsNewestFirst,
 		Charts:          charts,
 	}
 
@@ -282,8 +286,8 @@ func generateCounterPage(ctx context.Context, outputDir string, asOfDay, asOfEnd
 	if chart := charts["recent_weekly"]; chart != "" {
 		fmt.Fprintf(&body, "\n## Recent Weekly Trend\n\n![Recent weekly trend](%s)\n", chart)
 	}
-	if chart := charts["year_heatmap"]; chart != "" {
-		fmt.Fprintf(&body, "\n## %d Daily Heatmap\n\n![%d daily heatmap](%s)\n", yearRange.begin.Year(), yearRange.begin.Year(), chart)
+	for _, heatmap := range yearHeatmapsNewestFirst {
+		fmt.Fprintf(&body, "\n## %d Daily Heatmap\n\n![%d daily heatmap](%s)\n", heatmap.Year, heatmap.Year, heatmap.Filename)
 	}
 
 	appendRankTable(&body, "Top Days", topDays, "Day")
@@ -312,67 +316,76 @@ func sitePeriodTotal(ctx context.Context, trq counterbaseTimeRangeQuerier, count
 	return sitePeriodValue{Label: label, Count: trvSum(trvs)}, nil
 }
 
-func generateCounterCharts(ctx context.Context, pageDir string, counter directory.Counter, asOfEnd time.Time, yearRange timeRange, trq counterbaseTimeRangeQuerier) (map[string]string, error) {
+type siteYearHeatmapChart struct {
+	Year     int    `json:"year"`
+	Filename string `json:"filename"`
+}
+
+func generateCounterCharts(ctx context.Context, pageDir string, counter directory.Counter, asOfEnd time.Time, trq counterbaseTimeRangeQuerier) ([]siteYearHeatmapChart, map[string]string, error) {
 	charts := make(map[string]string)
 
 	allRange := counterCoverageRange(counter, asOfEnd)
 	years := yearRanges(allRange)
 	yearTRVs, err := trq.timeRangeValues(ctx, counter.ID, years)
 	if err != nil {
-		return nil, errutil.With(err)
+		return nil, nil, errutil.With(err)
 	}
-	if len(yearTRVs) > 0 {
+	if trvSum(yearTRVs) > 0 {
 		img, err := timeRangeBarGraph(yearTRVs, fmt.Sprintf("Yearly totals for %s", counter.Name), func(tr timeRange) string {
 			return tr.begin.Format("2006")
 		})
 		if err != nil {
-			return nil, errutil.With(err)
+			return nil, nil, errutil.With(err)
 		}
 		filename := "count-by-year.png"
 		if err := os.WriteFile(filepath.Join(pageDir, filename), img, 0o644); err != nil {
-			return nil, errutil.With(err)
+			return nil, nil, errutil.With(err)
 		}
 		charts["yearly_totals"] = filename
 	}
 
-	weeklyHistory, err := recentWeeklyHistory(ctx, trq, counter, asOfEnd)
+	weeklyHistory, err := recentWeeklyHistory(ctx, trq, counter, allRange.end)
 	if err != nil {
-		return nil, errutil.With(err)
+		return nil, nil, errutil.With(err)
 	}
 	if len(weeklyHistory) > 0 {
 		img, err := yearWeekChart(weeklyHistory, fmt.Sprintf("Recent weekly totals for %s", counter.Name))
 		if err != nil {
-			return nil, errutil.With(err)
+			return nil, nil, errutil.With(err)
 		}
 		filename := "count-by-week-recent-years.png"
 		if err := os.WriteFile(filepath.Join(pageDir, filename), img, 0o644); err != nil {
-			return nil, errutil.With(err)
+			return nil, nil, errutil.With(err)
 		}
 		charts["recent_weekly"] = filename
 	}
 
-	if counter.IsActive() {
-		dayCounts, err := dayCountsForRange(ctx, trq, counter.ID, yearRange)
+	var heatmaps []siteYearHeatmapChart
+	for _, heatmapRange := range yearlyHeatmapRanges(allRange) {
+		dayCounts, err := dayCountsForRange(ctx, trq, counter.ID, heatmapRange)
 		if err != nil {
-			return nil, errutil.With(err)
+			return nil, nil, errutil.With(err)
 		}
-		if len(dayCounts) > 0 {
-			axis := newYearHeatmapAxis(yearRange)
-			img, _, err := buildYearCounterHeatmap(ctx, counter, yearRange, axis, dayCounts)
+		if positiveDayCountSum(dayCounts) > 0 {
+			displayRange := calendarYearRange(heatmapRange.begin)
+			axis := newYearHeatmapAxis(displayRange)
+			img, _, err := buildYearCounterHeatmap(ctx, counter, displayRange, axis, dayCounts)
 			if err != nil {
-				return nil, errutil.With(err)
+				return nil, nil, errutil.With(err)
 			}
 			if len(img) > 0 {
-				filename := "heatmap.png"
+				year := heatmapRange.begin.Year()
+				filename := fmt.Sprintf("heatmap-%d.png", year)
 				if err := os.WriteFile(filepath.Join(pageDir, filename), img, 0o644); err != nil {
-					return nil, errutil.With(err)
+					return nil, nil, errutil.With(err)
 				}
-				charts["year_heatmap"] = filename
+				charts[fmt.Sprintf("year_heatmap_%d", year)] = filename
+				heatmaps = append(heatmaps, siteYearHeatmapChart{Year: year, Filename: filename})
 			}
 		}
 	}
 
-	return charts, nil
+	return heatmaps, charts, nil
 }
 
 func topRanges(ctx context.Context, trq counterbaseTimeRangeQuerier, counter directory.Counter, trs []timeRange, topN int, label func(timeRange) string) ([]siteRankRow, error) {
@@ -458,6 +471,16 @@ func dayCountsForRange(ctx context.Context, trq counterbaseTimeRangeQuerier, cou
 		out[trv.tr.begin] = trv.val
 	}
 	return out, nil
+}
+
+func positiveDayCountSum(counts map[time.Time]int) int {
+	var out int
+	for _, count := range counts {
+		if count > 0 {
+			out += count
+		}
+	}
+	return out
 }
 
 func writeSectionIndexPage(outputDir string, asOfDay time.Time, summaries []siteCounterSummary) error {
@@ -701,6 +724,8 @@ func appendRankTable(body *strings.Builder, heading string, rows []siteRankRow, 
 
 func counterCoverageRange(counter directory.Counter, asOfEnd time.Time) timeRange {
 	begin := asOfEnd
+	end := asOfEnd
+	var latestEnd time.Time
 	for _, sr := range counter.ServiceRanges {
 		if sr.Start.IsZero() {
 			continue
@@ -708,11 +733,52 @@ func counterCoverageRange(counter directory.Counter, asOfEnd time.Time) timeRang
 		if sr.Start.Before(begin) {
 			begin = sr.Start.Time
 		}
+		if sr.End.IsZero() {
+			latestEnd = asOfEnd
+			continue
+		}
+		if sr.End.After(latestEnd) {
+			latestEnd = sr.End.Time
+		}
 	}
 	if begin.Equal(asOfEnd) {
 		begin = time.Date(asOfEnd.Year(), 1, 1, 0, 0, 0, 0, asOfEnd.Location())
 	}
-	return timeRange{begin: begin, end: asOfEnd}
+	if !latestEnd.IsZero() && latestEnd.Before(end) {
+		end = latestEnd
+	}
+	if end.Before(begin) {
+		end = begin
+	}
+	return timeRange{begin: begin, end: end}
+}
+
+func yearlyHeatmapRanges(tr timeRange) []timeRange {
+	if !tr.begin.Before(tr.end) {
+		return nil
+	}
+
+	var out []timeRange
+	loc := tr.begin.Location()
+	for year := tr.begin.Year(); year <= tr.end.AddDate(0, 0, -1).Year(); year++ {
+		begin := time.Date(year, 1, 1, 0, 0, 0, 0, loc)
+		end := begin.AddDate(1, 0, 0)
+		if begin.Before(tr.begin) {
+			begin = tr.begin
+		}
+		if end.After(tr.end) {
+			end = tr.end
+		}
+		if begin.Before(end) {
+			out = append(out, timeRange{begin: begin, end: end})
+		}
+	}
+	return out
+}
+
+func calendarYearRange(t time.Time) timeRange {
+	begin := time.Date(t.Year(), 1, 1, 0, 0, 0, 0, t.Location())
+	return timeRange{begin: begin, end: begin.AddDate(1, 0, 0)}
 }
 
 func weekRanges(tr timeRange) []timeRange {

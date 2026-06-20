@@ -473,13 +473,13 @@ func buildYearCounterHeatmap(ctx context.Context, counter directory.Counter, yea
 		YLabel:     "Day",
 		XValues:    axis.xValues,
 		XTicks:     axis.xTicks,
-		CellWidth:  0.35,
-		CellHeight: 0.35,
-		Square:     true,
-		XTickFont:  8,
-		YTickFont:  8,
-		AxisFont:   9,
-		TitleFont:  12,
+		CellWidth:  0.24,
+		CellHeight: 0.7,
+		Square:     false,
+		XTickFont:  12,
+		YTickFont:  12,
+		AxisFont:   14,
+		TitleFont:  18,
 	}
 
 	for _, row := range dayRows {
